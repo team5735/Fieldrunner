@@ -1,7 +1,7 @@
 # Screenshots
 
 Chronological record of the game's renders as it's built, numbered in order and never replaced. Each name says the
-phase and what changed.
+phase and what changed. Scratch captures live in `_raw/` (git-ignored, ephemeral).
 
 | # | What |
 |---|---|

@@ -43,5 +43,6 @@ the user's display; `probeDriverSim` (see README) checks a running sim from the 
 - Field model node names are `GE-26900: Fuel` etc. (AdvantageScope's Config.json shows sanitized names).
 - `Field/FieldFrame.cs` holds the only field-to-Unity conversion; robot code uses the AndyMark 2026 layout size.
 - Known: the post-processing volume (tonemapping/contrast) doesn't visibly apply yet.
-- Every screenshot taken while working goes into `docs/screenshots/` as `NN-phaseX-what.png` (next number, never
-  overwrite or delete) with a line in `docs/screenshots/README.md`; the user follows progress there.
+- Scratch captures go to `docs/screenshots/_raw/` (git-ignored; `capture-screenshots.sh <name>` writes there).
+  Every meaningful render is copied up to `docs/screenshots/NN-phaseX-what.png` (next number, never overwrite or
+  delete) with a line in `docs/screenshots/README.md`; the user follows progress there.

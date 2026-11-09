@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
 # Runs the robot sim + bridge + built game, drives it with probe commands, and saves game screenshots.
 #
-#   scripts/capture-screenshots.sh <out.png> "<probe args>" [game args...]
+#   scripts/capture-screenshots.sh <name> "<probe args>" [game args...]
 #
-#   out.png     screenshot path; numbered out_0.png, out_1.png, ... (3 shots, 6 s apart, starting 12 s in)
+#   name        a bare name goes to docs/screenshots/_raw/<name>_0.png, _1, _2 (git-ignored scratch); a path
+#               ending in .png is used as given. 3 shots, 6 s apart, starting 12 s in.
 #   probe args  comma-separated probeDriverSim args, sent one per second once connected,
 #               e.g. "40,station R2,resetPose 12 3 3.14,start"
 #   game args   extra game arguments, e.g. --view overhead
@@ -14,6 +15,10 @@ set -euo pipefail
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 robot="$here/../FRC-2026"
 out="$1"
+if [[ "$out" != *.png ]]; then
+    mkdir -p "$here/docs/screenshots/_raw"
+    out="$here/docs/screenshots/_raw/$out.png"
+fi
 probe_args="$2"
 shift 2
 log="$(mktemp)"
