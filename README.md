@@ -60,7 +60,9 @@ docs/screenshots/                    current renders
 
 ## Game
 
-![Blue 2 driver view](docs/screenshots/blue2-driver-view-auto.jpg)
+![Blue 2 driver view](docs/screenshots/06-phase2-lighting-pass-blue2-auto.jpg)
+
+More renders, in build order: [docs/screenshots](docs/screenshots/README.md).
 
 Build it with `scripts/build-unity.sh` (Linux; `windows` / `all` for the others) — the project must not be open in
 the editor. `./gradlew simulateDriverSim` then starts it automatically. Keys: Enter start match, Backspace abort,
