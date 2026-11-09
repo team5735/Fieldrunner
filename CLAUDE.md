@@ -1,6 +1,6 @@
 # Driver-Sim — notes for agents
 
-Read README.md first: architecture, tasks, protocol.
+Read README.md first: architecture, tasks, protocol. Phase specs live in `docs/specs/`; implement against them.
 
 ## Ground rules
 
