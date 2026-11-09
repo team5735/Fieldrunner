@@ -15,12 +15,35 @@ namespace DriverSim.Field
         [Tooltip("The instantiated Field2026 model.")]
         public Transform fieldModel;
 
+        private const string DriverStationAcrylicPartNumber = "FE-00012"; // "FE-00012: Driver Station Acrylic"
+
         private readonly List<Vector3> stagedFuelPositions = new List<Vector3>(); // world positions, meters
+        private readonly List<GameObject> driverStationAcrylic = new List<GameObject>(); // panels on both walls
 
         /// <summary>World positions where the field model stages fuel at match start.</summary>
         public IReadOnlyList<Vector3> StagedFuelPositions
         {
             get { return stagedFuelPositions; }
+        }
+
+        /// <summary>
+        /// Hides the driver station acrylic on the wall nearest a viewpoint and shows it elsewhere. The model draws the
+        /// acrylic as 20%-opaque light gray, which looks like frosted glass across the whole view when the camera stands
+        /// behind it; real polycarbonate is close to clear.
+        /// </summary>
+        /// <param name="viewWorldX">Unity world X of the viewpoint; panels on the same side of the field are hidden.
+        /// Pass 0 to show all panels.</param>
+        public void HideAcrylicNear(float viewWorldX)
+        {
+            foreach (GameObject panel in driverStationAcrylic)
+            {
+                bool isSameSide = viewWorldX != 0 && Mathf.Sign(panel.transform.position.x) == Mathf.Sign(viewWorldX);
+                Renderer[] renderers = panel.GetComponentsInChildren<Renderer>(true);
+                foreach (Renderer panelRenderer in renderers)
+                {
+                    panelRenderer.enabled = !isSameSide;
+                }
+            }
         }
 
         private void Awake()
@@ -45,6 +68,11 @@ namespace DriverSim.Field
                     stagedFuelPositions.Add(renderers[0].bounds.center);
                 }
                 node.gameObject.SetActive(false);
+                return;
+            }
+            if (node.name.StartsWith(DriverStationAcrylicPartNumber))
+            {
+                driverStationAcrylic.Add(node.gameObject);
                 return;
             }
             for (int i = 0; i < node.childCount; i++)

@@ -22,6 +22,7 @@ fi
 probe_args="$2"
 shift 2
 log="$(mktemp)"
+ulimit -c 0 # a sim killed by the timeout must not leave multi-GB core dumps
 
 export DRIVERSIM_GAME_ARGS="--screenshot $out --screenshot-delay 12 --screenshot-count 3 --screenshot-interval 6 --quit-after-screenshot $*"
 if [[ -z "${JAVA_HOME:-}" && -x "$HOME/.local/jdk-17/bin/java" ]]; then

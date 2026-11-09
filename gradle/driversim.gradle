@@ -70,8 +70,8 @@ if (isDriverSimRun || isDriverSimSelfTest) {
         }
 
         if (isDriverSimRun) {
-            // start the Unity game next to the robot sim, and stop it when the sim ends
-            def gameProcess = null
+            // start the Unity game next to the robot sim. The game sends "quit" when it closes, which ends the robot
+            // sim with a clean System.exit; stopDriverSimGame kills the game if the sim ends first or fails.
             doFirst {
                 def game = findDriverSimGame(driverSimRoot)
                 if (game == null) {
@@ -79,20 +79,25 @@ if (isDriverSimRun || isDriverSimSelfTest) {
                             + 'Build it with Driver-Sim/scripts/build-unity.sh, or set DRIVERSIM_GAME to its path.')
                 } else {
                     // DRIVERSIM_GAME_ARGS: extra space-separated arguments for the game, e.g. "--nt-host 10.57.35.2"
-                    def command = [game.absolutePath]
+                    def command = [game.absolutePath, '--stop-sim-on-exit']
                     def extraArgs = System.getenv('DRIVERSIM_GAME_ARGS')
                     if (extraArgs != null && !extraArgs.trim().isEmpty()) {
                         command.addAll(extraArgs.trim().split('\\s+'))
                     }
                     logger.lifecycle("[Driver-Sim] starting game: ${command.join(' ')}")
-                    gameProcess = new ProcessBuilder(command).inheritIO().start()
+                    project.ext.driverSimGameProcess = new ProcessBuilder(command).inheritIO().start()
                 }
             }
-            doLast {
-                if (gameProcess != null) {
-                    gameProcess.destroy()
-                }
-            }
+            finalizedBy 'stopDriverSimGame'
+        }
+    }
+}
+
+tasks.register('stopDriverSimGame') {
+    description = 'Stops the Unity game started by simulateDriverSim, if it is still running.'
+    doLast {
+        if (project.ext.has('driverSimGameProcess') && project.ext.driverSimGameProcess.isAlive()) {
+            project.ext.driverSimGameProcess.destroy()
         }
     }
 }

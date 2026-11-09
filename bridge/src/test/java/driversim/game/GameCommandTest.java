@@ -14,6 +14,7 @@ class GameCommandTest {
         assertEquals(Verb.START, GameCommand.parse("1 start").verb());
         assertEquals(Verb.ABORT, GameCommand.parse("2 abort").verb());
         assertEquals(Verb.BALL_LAUNCHED, GameCommand.parse("3 ballLaunched").verb());
+        assertEquals(Verb.QUIT, GameCommand.parse("7 quit").verb());
 
         GameCommand station = GameCommand.parse("4 station R2");
         assertEquals(Verb.STATION, station.verb());

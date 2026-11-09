@@ -34,6 +34,10 @@ namespace DriverSim.Util
                 yield return new WaitForEndOfFrame();
                 ScreenCapture.CaptureScreenshot(file);
                 Debug.Log("[Driver-Sim] screenshot " + file);
+                if (CommandLine.HasFlag("--screenshot-camera-too"))
+                {
+                    SaveCameraRender(file.Replace(".png", "_camera.png"));
+                }
                 if (i < count - 1)
                 {
                     yield return new WaitForSecondsRealtime(intervalS);
@@ -45,6 +49,35 @@ namespace DriverSim.Util
                 yield return new WaitForSecondsRealtime(1f); // CaptureScreenshot writes asynchronously
                 Application.Quit();
             }
+        }
+
+        /// <summary>
+        /// Renders the main camera into an sRGB texture and saves it, bypassing the window's backbuffer (no HUD). Used to
+        /// tell rendering problems apart from backbuffer/display color problems.
+        /// </summary>
+        private static void SaveCameraRender(string file)
+        {
+            Camera cam = Camera.main;
+            if (cam == null)
+            {
+                return;
+            }
+            RenderTexture target = new RenderTexture(Screen.width, Screen.height, 24, RenderTextureFormat.ARGB32,
+                RenderTextureReadWrite.sRGB);
+            RenderTexture previousTarget = cam.targetTexture;
+            RenderTexture previousActive = RenderTexture.active;
+            cam.targetTexture = target;
+            cam.Render();
+            RenderTexture.active = target;
+            Texture2D image = new Texture2D(Screen.width, Screen.height, TextureFormat.RGB24, false, false);
+            image.ReadPixels(new Rect(0, 0, Screen.width, Screen.height), 0, 0);
+            image.Apply();
+            cam.targetTexture = previousTarget;
+            RenderTexture.active = previousActive;
+            System.IO.File.WriteAllBytes(file, image.EncodeToPNG());
+            Destroy(image);
+            target.Release();
+            Debug.Log("[Driver-Sim] camera render " + file);
         }
 
         private static float ReadFloat(string flag, float fallback)

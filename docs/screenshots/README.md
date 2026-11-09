@@ -11,3 +11,6 @@ phase and what changed. Scratch captures live in `_raw/` (git-ignored, ephemeral
 | 04 | Overhead debug view (`--view overhead`), blue at the bottom. |
 | 05 | Red 2 driver view: mirrored camera, red bumpers. |
 | 06 | After a lighting/post-processing pass (post-processing not yet taking effect). |
+| 07 | Haze fixed: the camera was looking through the model's 20%-opaque gray driver station acrylic; the panels on the driver's own wall are now hidden. |
+| 08 | Blue 1 view, camera now faces the center of the field from every station. |
+| 09 | Red 1 view (mirror of Blue 1), after the clean-teardown fix. |

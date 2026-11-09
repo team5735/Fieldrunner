@@ -129,6 +129,16 @@ namespace DriverSim.Net
             robot = ComputeRenderState(Time.unscaledTimeAsDouble);
         }
 
+        private void OnApplicationQuit()
+        {
+            // launched by ./gradlew simulateDriverSim: closing the game ends the whole session cleanly
+            if (CommandLine.HasFlag("--stop-sim-on-exit") && IsConnected)
+            {
+                SendCommand("quit");
+                System.Threading.Thread.Sleep(300); // let the send go out before the process exits
+            }
+        }
+
         private void OnDestroy()
         {
             if (client != null)

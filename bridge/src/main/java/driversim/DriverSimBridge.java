@@ -150,6 +150,11 @@ public final class DriverSimBridge {
             case ABORT -> match.abort(nowS);
             case AUTO_WINNER -> match.setAutoWinner(command.text().charAt(0));
             case BALL_LAUNCHED -> mechanisms.applyBallLaunched();
+            case QUIT -> {
+                // a clean exit; killing the sim with a signal makes WPILib's native teardown abort and dump core
+                System.out.println("[Driver-Sim] game closed the session; exiting robot sim");
+                System.exit(0);
+            }
             case STATION -> {
                 AllianceStationID station = convertStation(command.text());
                 DriverStationSim.setAllianceStationId(station);

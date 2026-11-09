@@ -81,6 +81,7 @@ namespace DriverSim.Editor
             cameraData.renderPostProcessing = true;
             DriverStationCamera driverCamera = cameraObject.AddComponent<DriverStationCamera>();
             driverCamera.link = link;
+            driverCamera.fieldSetup = fieldSetup;
 
             // overlay and controls
             DebugHud hud = root.AddComponent<DebugHud>();
@@ -180,6 +181,12 @@ namespace DriverSim.Editor
             PlayerSettings.defaultScreenHeight = 900;
             PlayerSettings.resizableWindow = true;
             PlayerSettings.visibleInBackground = true;
+
+            // Linear color space: physically based lighting for URP
+            if (PlayerSettings.colorSpace != ColorSpace.Linear)
+            {
+                PlayerSettings.colorSpace = ColorSpace.Linear;
+            }
         }
     }
 }

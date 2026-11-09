@@ -60,9 +60,12 @@ docs/screenshots/                    current renders
 
 ## Game
 
-![Blue 2 driver view](docs/screenshots/06-phase2-lighting-pass-blue2-auto.jpg)
+![Blue 1 driver view](docs/screenshots/08-phase2-blue1-faces-field-center.jpg)
 
 More renders, in build order: [docs/screenshots](docs/screenshots/README.md).
+
+The camera stands behind the selected station and faces the field center. Closing the game (F10 or the window)
+ends the `simulateDriverSim` session: the game sends `quit` and the robot sim exits cleanly.
 
 Build it with `scripts/build-unity.sh` (Linux; `windows` / `all` for the others) — the project must not be open in
 the editor. `./gradlew simulateDriverSim` then starts it automatically. Keys: Enter start match, Backspace abort,
@@ -104,7 +107,7 @@ bridge re-asserts the enable state every loop, so stop a match from the game (`a
 | `robot/state` | double[] | bridge → game | pose, velocity, mechanisms, enable/mode — `game/RobotStateLayout.java` |
 | `match/state` | double[] | bridge → game | phase, match time, hub activity, station, auto winner — `game/MatchStateLayout.java` |
 | `bridge/info` | string | bridge → game | protocol version |
-| `game/command` | string | game → bridge | `"<seq> <verb> [args]"`: `start`, `abort`, `station R2`, `autoWinner B`, `resetPose x y heading`, `ballLaunched` |
+| `game/command` | string | game → bridge | `"<seq> <verb> [args]"`: `start`, `abort`, `station R2`, `autoWinner B`, `resetPose x y heading`, `ballLaunched`, `quit` |
 | `game/poseNudge` | double[3] | game → bridge | collision push-out `{dx, dy, dHeading}` (m, rad, field frame), added to the current pose |
 
 Field frame is WPILib's blue-origin frame (x along the field's length from the blue wall, CCW-positive headings).

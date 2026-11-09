@@ -13,6 +13,7 @@ package driversim.game;
  * <li>{@code autoWinner <R|B>} - report which alliance scored more in autonomous.</li>
  * <li>{@code resetPose <xMeters> <yMeters> <headingRadians>} - place the robot, field frame (wpiBlue origin).</li>
  * <li>{@code ballLaunched} - a ball left the launcher; the flywheel loses some speed.</li>
+ * <li>{@code quit} - the game is closing its session; the robot sim exits cleanly.</li>
  * </ul>
  *
  * @param seq     Sequence number from the game.
@@ -28,7 +29,8 @@ public record GameCommand(long seq, Verb verb, String text, double[] numbers) {
         STATION,
         AUTO_WINNER,
         RESET_POSE,
-        BALL_LAUNCHED
+        BALL_LAUNCHED,
+        QUIT
     }
 
     /**
@@ -61,6 +63,9 @@ public record GameCommand(long seq, Verb verb, String text, double[] numbers) {
         }
         if (verbText.equals("abort") && parts.length == 2) {
             return new GameCommand(seq, Verb.ABORT, "", new double[0]);
+        }
+        if (verbText.equals("quit") && parts.length == 2) {
+            return new GameCommand(seq, Verb.QUIT, "", new double[0]);
         }
         if (verbText.equals("ballLaunched") && parts.length == 2) {
             return new GameCommand(seq, Verb.BALL_LAUNCHED, "", new double[0]);
