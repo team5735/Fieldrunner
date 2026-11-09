@@ -27,3 +27,4 @@ phase and what changed. Scratch captures live in `_raw/` (git-ignored, ephemeral
 | 20 | Pause menu during free practice (Restart Match appears only in a match). |
 | 21 | In-game HUD with the "Controller connected" toast and the new hotkey line (`--screenshot-menu toast`). |
 | 22 | Title screen after the rename: the game is now called Fieldrunner (window title, title screen, executables); plumbing names stay DriverSim. |
+| 23 | Title screen with a real controller: "Input: Microsoft Xbox One 2015" after the container got the host's /dev/input. |

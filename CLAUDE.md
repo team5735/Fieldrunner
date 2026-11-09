@@ -86,6 +86,10 @@ the README's controls table).
   which Unity rejects (falls back to GL); with `VK_DRIVER_FILES` pointing at a manifest for `libGLX_nvidia.so.0` the
   game runs on Vulkan. `/dev/dri` isn't accessible (Intel GPU unusable). Check the player log's `[Driver-Sim] graphics:`
   line.
+- Controllers in this container: it must mount the host's live `/dev/input` (`-v /dev/input:/dev/input
+  --device-cgroup-rule='c 13:* rmw'`). The host's logind `uaccess` ACL then lets the user read the gamepad (same uid
+  inside and out), and hot-plugging works. A private `/dev` copy shows the device but unreadable (group 107 only), and
+  the game silently falls back to the keyboard. The title screen's "Input:" line shows what the game is using.
 - `BuildPlayers` sets each platform's graphics API list (it writes them into ProjectSettings.asset) and builds the Mac
   app universal; `mac` builds need the `mac-mono` module (`unity install-modules -e <version> -m mac-mono`).
 - Stop sims cleanly: killing the robot sim with a signal makes WPILib's native teardown abort (fmt assertion) and dump
