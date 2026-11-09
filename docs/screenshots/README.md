@@ -14,3 +14,4 @@ phase and what changed. Scratch captures live in `_raw/` (git-ignored, ephemeral
 | 07 | Haze fixed: the camera was looking through the model's 20%-opaque gray driver station acrylic; the panels on the driver's own wall are now hidden. |
 | 08 | Blue 1 view, camera now faces the center of the field from every station. |
 | 09 | Red 1 view (mirror of Blue 1), after the clean-teardown fix. |
+| 10 | Red 2 view after applying the team style guide to all code: same behavior, clean session teardown. |

@@ -19,6 +19,11 @@ Xbox controller ─► WPILib sim GUI (Joysticks / DS panels)
 
 The robot code owns robot motion (CTRE's swerve sim), so drive feel matches the real robot. The game owns the world.
 
+## Code style
+
+All code follows the team style guide, [`FRC/STYLE.md`](../FRC/STYLE.md); Java is formatted with
+`scripts/format.java.sh` (clang-format with the team's `.clang-format`). See CLAUDE.md for how the rules map to C#.
+
 ## Status
 
 | Phase | What | State |

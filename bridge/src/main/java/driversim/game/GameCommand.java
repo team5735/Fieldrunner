@@ -1,5 +1,8 @@
 package driversim.game;
 
+import edu.wpi.first.math.geometry.Pose2d;
+import edu.wpi.first.math.geometry.Rotation2d;
+
 /**
  * One command from the game to the bridge, parsed from the {@code /DriverSim/game/command} string topic.
  *
@@ -16,34 +19,28 @@ package driversim.game;
  * <li>{@code quit} - the game is closing its session; the robot sim exits cleanly.</li>
  * </ul>
  *
- * @param seq     Sequence number from the game.
- * @param verb    What to do.
- * @param text    The single text argument for station and autoWinner; empty otherwise.
- * @param numbers Numeric arguments for resetPose (x, y, heading); empty otherwise.
+ * @param seq       Sequence number from the game.
+ * @param verb      What to do.
+ * @param text      Station name for STATION ("B1".."R3"), alliance letter for AUTO_WINNER ("R" or "B"); empty
+ *                  otherwise.
+ * @param poseField Where to place the robot for RESET_POSE, field frame; null otherwise.
  */
-public record GameCommand(long seq, Verb verb, String text, double[] numbers) {
+public record GameCommand(long seq, Verb verb, String text, Pose2d poseField) {
     /** Command kinds. */
-    public enum Verb {
-        START,
-        ABORT,
-        STATION,
-        AUTO_WINNER,
-        RESET_POSE,
-        BALL_LAUNCHED,
-        QUIT
-    }
+    public enum Verb { START, ABORT, STATION, AUTO_WINNER, RESET_POSE, BALL_LAUNCHED, QUIT }
 
     /**
      * Parses one command string.
      *
-     * @param wire Command text as published by the game.
+     * @param wire Command text as published by the game; may be null.
      * @return The command, or null when the text is malformed or the verb is unknown.
      */
     public static GameCommand parse(String wire) {
         if (wire == null) {
             return null;
         }
-        String[] parts = wire.trim().split("\\s+");
+        String trimmed = wire.trim();
+        String[] parts = trimmed.split("\\s+");
         if (parts.length < 2) {
             return null;
         }
@@ -56,67 +53,84 @@ public record GameCommand(long seq, Verb verb, String text, double[] numbers) {
             return null;
         }
 
-        // verb and its arguments
+        // verbs without arguments
         String verbText = parts[1];
-        if (verbText.equals("start") && parts.length == 2) {
-            return new GameCommand(seq, Verb.START, "", new double[0]);
+        boolean hasNoArguments = parts.length == 2;
+        if (verbText.equals("start") && hasNoArguments) {
+            return new GameCommand(seq, Verb.START, "", null);
         }
-        if (verbText.equals("abort") && parts.length == 2) {
-            return new GameCommand(seq, Verb.ABORT, "", new double[0]);
+        if (verbText.equals("abort") && hasNoArguments) {
+            return new GameCommand(seq, Verb.ABORT, "", null);
         }
-        if (verbText.equals("quit") && parts.length == 2) {
-            return new GameCommand(seq, Verb.QUIT, "", new double[0]);
+        if (verbText.equals("ballLaunched") && hasNoArguments) {
+            return new GameCommand(seq, Verb.BALL_LAUNCHED, "", null);
         }
-        if (verbText.equals("ballLaunched") && parts.length == 2) {
-            return new GameCommand(seq, Verb.BALL_LAUNCHED, "", new double[0]);
+        if (verbText.equals("quit") && hasNoArguments) {
+            return new GameCommand(seq, Verb.QUIT, "", null);
         }
-        if (verbText.equals("station") && parts.length == 3 && isStationName(parts[2])) {
-            return new GameCommand(seq, Verb.STATION, parts[2], new double[0]);
+
+        // verbs with one text argument
+        boolean hasOneArgument = parts.length == 3;
+        if (verbText.equals("station") && hasOneArgument && isStationName(parts[2])) {
+            return new GameCommand(seq, Verb.STATION, parts[2], null);
         }
-        if (verbText.equals("autoWinner") && parts.length == 3 && isAllianceLetter(parts[2])) {
-            return new GameCommand(seq, Verb.AUTO_WINNER, parts[2], new double[0]);
+        if (verbText.equals("autoWinner") && hasOneArgument && isAllianceLetter(parts[2])) {
+            return new GameCommand(seq, Verb.AUTO_WINNER, parts[2], null);
         }
+
+        // robot placement
         if (verbText.equals("resetPose") && parts.length == 5) {
-            double[] numbers = parseNumbers(parts, 2);
-            if (numbers == null) {
+            Pose2d poseField = convertToPose(parts[2], parts[3], parts[4]);
+            if (poseField == null) {
                 return null;
             }
-            return new GameCommand(seq, Verb.RESET_POSE, "", numbers);
+            return new GameCommand(seq, Verb.RESET_POSE, "", poseField);
         }
         return null;
     }
 
     // ---- low-level helpers (static, no side effects)
 
-    private static boolean isStationName(String text) {
-        return text.matches("[BR][123]");
-    }
-
-    private static boolean isAllianceLetter(String text) {
-        return text.equals("R") || text.equals("B");
-    }
+    /**
+     * Whether text names a driver station.
+     *
+     * @param text Candidate station name.
+     * @return True for "B1".."B3" and "R1".."R3".
+     */
+    private static boolean isStationName(String text) { return text.matches("[BR][123]"); }
 
     /**
-     * Parses every token from an index onward as a finite double.
+     * Whether text is an alliance letter.
      *
-     * @param parts Tokens.
-     * @param from  First token to parse.
-     * @return Parsed numbers, or null when any token is not a finite number.
+     * @param text Candidate letter.
+     * @return True for "R" and "B".
      */
-    private static double[] parseNumbers(String[] parts, int from) {
-        double[] numbers = new double[parts.length - from];
-        for (int i = from; i < parts.length; i++) {
-            double value;
-            try {
-                value = Double.parseDouble(parts[i]);
-            } catch (NumberFormatException e) {
-                return null;
-            }
-            if (!Double.isFinite(value)) {
-                return null;
-            }
-            numbers[i - from] = value;
+    private static boolean isAllianceLetter(String text) { return text.equals("R") || text.equals("B"); }
+
+    /**
+     * Builds a field-frame pose from three number tokens.
+     *
+     * @param xText       Field x, meters.
+     * @param yText       Field y, meters.
+     * @param headingText Field heading, radians, counter-clockwise positive.
+     * @return The pose, or null when any token is not a finite number.
+     */
+    private static Pose2d convertToPose(String xText, String yText, String headingText) {
+        double xMeters;
+        double yMeters;
+        double headingRadians;
+        try {
+            xMeters = Double.parseDouble(xText);
+            yMeters = Double.parseDouble(yText);
+            headingRadians = Double.parseDouble(headingText);
+        } catch (NumberFormatException e) {
+            return null;
         }
-        return numbers;
+        boolean isFinite = Double.isFinite(xMeters) && Double.isFinite(yMeters) && Double.isFinite(headingRadians);
+        if (!isFinite) {
+            return null;
+        }
+        Rotation2d heading = new Rotation2d(headingRadians);
+        return new Pose2d(xMeters, yMeters, heading);
     }
 }

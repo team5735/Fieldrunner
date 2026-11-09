@@ -10,32 +10,32 @@ package driversim.game;
  * {@link #getStatus} and apply it to the simulated driver station.
  */
 public final class MatchController {
-    public static final double AUTO_S = 20; // seconds of autonomous
-    public static final double AUTO_TO_TELEOP_S = 3; // seconds disabled between autonomous and teleop
-    public static final double TELEOP_S = 140; // seconds of teleop (2:20)
+    public static final double AUTO_S = 20;           // seconds of autonomous
+    public static final double AUTO_TO_TELEOP_S = 3;  // seconds disabled between autonomous and teleop
+    public static final double TELEOP_S = 140;        // seconds of teleop (2:20)
 
     // teleop hub shifts, as match time remaining in seconds (the robot code's MatchState uses the same boundaries)
-    public static final double TRANSITION_END_S = 130; // both hubs active above this
-    public static final double SHIFT_1_END_S = 105; // shift 1: the autonomous loser's hub is active
-    public static final double SHIFT_2_END_S = 80; // shift 2: the autonomous winner's hub is active
-    public static final double SHIFT_3_END_S = 55; // shift 3: loser's hub
-    public static final double ENDGAME_START_S = 30; // shift 4 (winner's hub) until here, then both hubs active
+    public static final double TRANSITION_END_S = 130;  // both hubs active above this
+    public static final double SHIFT_1_END_S = 105;     // shift 1: the autonomous loser's hub is active
+    public static final double SHIFT_2_END_S = 80;      // shift 2: the autonomous winner's hub is active
+    public static final double SHIFT_3_END_S = 55;      // shift 3: loser's hub
+    public static final double ENDGAME_START_S = 30;    // shift 4 (winner's hub) until here, then both hubs active
 
     /** Where the match is. */
-    public enum Phase {
-        FREE_PLAY,
-        AUTO,
-        AUTO_TO_TELEOP,
-        TELEOP,
-        POST_MATCH
-    }
+    public enum Phase { FREE_PLAY, AUTO, AUTO_TO_TELEOP, TELEOP, POST_MATCH }
 
-    private Phase phase; // current phase
-    private double phaseStartS; // time the current phase began, seconds
-    private char autoWinner; // 'R', 'B', or ' ' when not yet decided
+    private final double slackS;  // seconds: half the update period, so a boundary never waits an extra update
+    private Phase phase;          // current phase
+    private double phaseStartS;   // time the current phase began, seconds
+    private char autoWinner;      // 'R', 'B', or ' ' when not yet decided
 
-    /** Creates a controller in free play. */
-    public MatchController() {
+    /**
+     * Creates a controller in free play.
+     *
+     * @param updatePeriodS Seconds between calls to {@link #update}; phase boundaries allow half of it as slack.
+     */
+    public MatchController(double updatePeriodS) {
+        this.slackS = 0.5 * updatePeriodS;
         this.phase = Phase.FREE_PLAY;
         this.phaseStartS = 0;
         this.autoWinner = ' ';
@@ -85,16 +85,16 @@ public final class MatchController {
      */
     public void update(double nowS) {
         double elapsedS = nowS - phaseStartS;
-        if (phase == Phase.AUTO && elapsedS >= AUTO_S) {
+        if (phase == Phase.AUTO && elapsedS >= AUTO_S - slackS) {
             phase = Phase.AUTO_TO_TELEOP;
             phaseStartS = phaseStartS + AUTO_S;
-        } else if (phase == Phase.AUTO_TO_TELEOP && elapsedS >= AUTO_TO_TELEOP_S) {
+        } else if (phase == Phase.AUTO_TO_TELEOP && elapsedS >= AUTO_TO_TELEOP_S - slackS) {
             phase = Phase.TELEOP;
             phaseStartS = phaseStartS + AUTO_TO_TELEOP_S;
             if (autoWinner == ' ') {
-                autoWinner = 'R'; // nobody reported a winner: treat it as a tie the field broke for red
+                autoWinner = 'R';  // nobody reported a winner: treat it as a tie the field broke for red
             }
-        } else if (phase == Phase.TELEOP && elapsedS >= TELEOP_S) {
+        } else if (phase == Phase.TELEOP && elapsedS >= TELEOP_S - slackS) {
             phase = Phase.POST_MATCH;
             phaseStartS = phaseStartS + TELEOP_S;
         }

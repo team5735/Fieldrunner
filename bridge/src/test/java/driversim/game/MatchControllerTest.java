@@ -9,12 +9,13 @@ import org.junit.jupiter.api.Test;
 import driversim.game.MatchController.Phase;
 
 class MatchControllerTest {
-    private static final double T0 = 100; // arbitrary match start time, seconds
+    private static final double UPDATE_PERIOD_S = 0.02;  // seconds between updates in these tests
+    private static final double T0 = 100;                // arbitrary match start time, seconds
     private static final double TELEOP_START = T0 + MatchController.AUTO_S + MatchController.AUTO_TO_TELEOP_S;
 
     /** Runs the controller forward to a time in small steps, like the bridge loop would. */
     private static MatchStatus runTo(MatchController match, double fromS, double toS) {
-        for (double t = fromS; t <= toS; t += 0.02) {
+        for (double t = fromS; t <= toS; t += UPDATE_PERIOD_S) {
             match.update(t);
         }
         match.update(toS);
@@ -23,7 +24,7 @@ class MatchControllerTest {
 
     @Test
     void freePlayLeavesDriverStationAlone() {
-        MatchController match = new MatchController();
+        MatchController match = new MatchController(UPDATE_PERIOD_S);
         MatchStatus status = match.getStatus(5);
         assertEquals(Phase.FREE_PLAY, status.phase());
         assertFalse(status.isFieldControlled());
@@ -33,7 +34,7 @@ class MatchControllerTest {
 
     @Test
     void runsAutoGapTeleopThenPost() {
-        MatchController match = new MatchController();
+        MatchController match = new MatchController(UPDATE_PERIOD_S);
         match.start(T0);
 
         MatchStatus auto = runTo(match, T0, T0 + 5);
@@ -60,7 +61,7 @@ class MatchControllerTest {
 
     @Test
     void autoLoserGetsShiftOne() {
-        MatchController match = new MatchController();
+        MatchController match = new MatchController(UPDATE_PERIOD_S);
         match.start(T0);
         runTo(match, T0, T0 + 10);
         match.setAutoWinner('B');
@@ -89,7 +90,7 @@ class MatchControllerTest {
 
     @Test
     void missingAutoWinnerDefaultsSoShiftsStillRun() {
-        MatchController match = new MatchController();
+        MatchController match = new MatchController(UPDATE_PERIOD_S);
         match.start(T0);
         MatchStatus teleop = runTo(match, T0, TELEOP_START + 1);
         assertEquals("R", teleop.gameMessage());
@@ -97,7 +98,7 @@ class MatchControllerTest {
 
     @Test
     void autoWinnerIgnoredOnceTeleopStarts() {
-        MatchController match = new MatchController();
+        MatchController match = new MatchController(UPDATE_PERIOD_S);
         match.start(T0);
         match.setAutoWinner('B');
         runTo(match, T0, TELEOP_START + 1);
@@ -107,7 +108,7 @@ class MatchControllerTest {
 
     @Test
     void abortReturnsToFreePlayAndStartIgnoredMidMatch() {
-        MatchController match = new MatchController();
+        MatchController match = new MatchController(UPDATE_PERIOD_S);
         match.start(T0);
         runTo(match, T0, T0 + 3);
         match.start(T0 + 3);

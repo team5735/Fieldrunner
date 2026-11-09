@@ -1,14 +1,16 @@
 package driversim.game;
 
-import java.util.ArrayList;
-import java.util.List;
-
 import edu.wpi.first.networktables.DoubleArrayPublisher;
 import edu.wpi.first.networktables.DoubleArraySubscriber;
+import edu.wpi.first.networktables.DoubleArrayTopic;
 import edu.wpi.first.networktables.NetworkTableInstance;
 import edu.wpi.first.networktables.PubSubOption;
 import edu.wpi.first.networktables.StringPublisher;
 import edu.wpi.first.networktables.StringSubscriber;
+import edu.wpi.first.networktables.StringTopic;
+
+import java.util.ArrayList;
+import java.util.List;
 
 /**
  * NetworkTables 4 link between the bridge and the Unity game. All topics live under {@code /DriverSim}; the game
@@ -29,41 +31,44 @@ import edu.wpi.first.networktables.StringSubscriber;
  * </ul>
  */
 public final class GameLink {
-    public static final int PROTOCOL_VERSION = 1; // bump when any topic layout changes
-    private static final double STATE_PERIOD_S = 0.01; // seconds between state sends to the game
-    private static final int QUEUE_DEPTH = 128; // game-to-bridge values buffered between reads
+    public static final int PROTOCOL_VERSION = 1;       // bump when any topic layout changes
+    private static final double STATE_PERIOD_S = 0.01;  // seconds between state sends to the game
+    private static final int QUEUE_DEPTH = 128;         // game-to-bridge values buffered between reads
+    private static final long SEQ_RESTART_GAP = 1000;   // a sequence this far below the last one is a restarted game
 
-    private final DoubleArrayPublisher robotStatePublisher; // /DriverSim/robot/state
-    private final DoubleArrayPublisher matchStatePublisher; // /DriverSim/match/state
-    private final StringPublisher infoPublisher; // /DriverSim/bridge/info
-    private final StringSubscriber commandSubscriber; // /DriverSim/game/command
-    private final DoubleArraySubscriber poseNudgeSubscriber; // /DriverSim/game/poseNudge
-    private long lastCommandSeq; // highest command sequence number handled; repeats are dropped
+    private final DoubleArrayPublisher robotStatePublisher;   // /DriverSim/robot/state
+    private final DoubleArrayPublisher matchStatePublisher;   // /DriverSim/match/state
+    private final StringPublisher infoPublisher;              // /DriverSim/bridge/info
+    private final StringSubscriber commandSubscriber;         // /DriverSim/game/command
+    private final DoubleArraySubscriber poseNudgeSubscriber;  // /DriverSim/game/poseNudge
+    private long lastCommandSeq;  // highest command sequence number handled; repeats are dropped
 
     /**
      * Opens the topics on the default NetworkTables instance (the robot's NT server).
      */
     public GameLink() {
         NetworkTableInstance nt = NetworkTableInstance.getDefault();
-        robotStatePublisher = nt.getDoubleArrayTopic("/DriverSim/robot/state")
-            .publish(PubSubOption.periodic(STATE_PERIOD_S), PubSubOption.sendAll(true));
-        matchStatePublisher = nt.getDoubleArrayTopic("/DriverSim/match/state")
-            .publish(PubSubOption.periodic(STATE_PERIOD_S));
-        infoPublisher = nt.getStringTopic("/DriverSim/bridge/info").publish();
-        commandSubscriber = nt.getStringTopic("/DriverSim/game/command")
-            .subscribe(
-                "",
-                PubSubOption.sendAll(true),
-                PubSubOption.keepDuplicates(true),
-                PubSubOption.pollStorage(QUEUE_DEPTH)
-            );
-        poseNudgeSubscriber = nt.getDoubleArrayTopic("/DriverSim/game/poseNudge")
-            .subscribe(
-                new double[0],
-                PubSubOption.sendAll(true),
-                PubSubOption.keepDuplicates(true),
-                PubSubOption.pollStorage(QUEUE_DEPTH)
-            );
+
+        // publish/subscribe options
+        PubSubOption statePeriod = PubSubOption.periodic(STATE_PERIOD_S);
+        PubSubOption sendAll = PubSubOption.sendAll(true);
+        PubSubOption keepDuplicates = PubSubOption.keepDuplicates(true);
+        PubSubOption queueDepth = PubSubOption.pollStorage(QUEUE_DEPTH);
+
+        // bridge to game
+        DoubleArrayTopic robotStateTopic = nt.getDoubleArrayTopic("/DriverSim/robot/state");
+        robotStatePublisher = robotStateTopic.publish(statePeriod, sendAll);
+        DoubleArrayTopic matchStateTopic = nt.getDoubleArrayTopic("/DriverSim/match/state");
+        matchStatePublisher = matchStateTopic.publish(statePeriod);
+        StringTopic infoTopic = nt.getStringTopic("/DriverSim/bridge/info");
+        infoPublisher = infoTopic.publish();
+
+        // game to bridge
+        StringTopic commandTopic = nt.getStringTopic("/DriverSim/game/command");
+        commandSubscriber = commandTopic.subscribe("", sendAll, keepDuplicates, queueDepth);
+        DoubleArrayTopic poseNudgeTopic = nt.getDoubleArrayTopic("/DriverSim/game/poseNudge");
+        poseNudgeSubscriber = poseNudgeTopic.subscribe(new double[0], sendAll, keepDuplicates, queueDepth);
+
         infoPublisher.set("DriverSim bridge protocol " + PROTOCOL_VERSION);
         lastCommandSeq = Long.MIN_VALUE;
     }
@@ -73,23 +78,18 @@ public final class GameLink {
      *
      * @param state Values laid out per {@link RobotStateLayout}.
      */
-    public void publishRobotState(double[] state) {
-        robotStatePublisher.set(state);
-    }
+    public void publishRobotState(double[] state) { robotStatePublisher.set(state); }
 
     /**
      * Sends the match state to the game.
      *
      * @param state Values laid out per {@link MatchStateLayout}.
      */
-    public void publishMatchState(double[] state) {
-        matchStatePublisher.set(state);
-    }
+    public void publishMatchState(double[] state) { matchStatePublisher.set(state); }
 
     /**
      * Takes every command the game has sent since the last call, oldest first, dropping malformed text and repeated
-     * sequence numbers. Restarting the game resets its sequence, so a sequence number far below the last one starts
-     * a new run instead of being dropped.
+     * sequence numbers. A sequence number far below the last one (a restarted game) starts a new run.
      *
      * @return New commands; empty when there are none.
      */
@@ -101,11 +101,14 @@ public final class GameLink {
             if (command == null) {
                 continue;
             }
-            boolean isRestart = command.seq() < lastCommandSeq - 1000 || command.seq() == 0;
-            if (command.seq() <= lastCommandSeq && !isRestart) {
+
+            // drop repeats unless the game restarted its sequence
+            long seq = command.seq();
+            boolean isRestart = seq < lastCommandSeq - SEQ_RESTART_GAP || seq == 0;
+            if (seq <= lastCommandSeq && !isRestart) {
                 continue;
             }
-            lastCommandSeq = command.seq();
+            lastCommandSeq = seq;
             commands.add(command);
         }
         return commands;
@@ -114,18 +117,17 @@ public final class GameLink {
     /**
      * Takes and sums every collision push-out the game has sent since the last call.
      *
-     * @return Total {dx, dy, dHeading}, meters and radians, field frame; all zero when there are none.
+     * @return Total push-out; {@link PoseNudge#ZERO} when there are none.
      */
-    public double[] takePoseNudge() {
-        double[] total = new double[3];
+    public PoseNudge takePoseNudge() {
+        PoseNudge total = PoseNudge.ZERO;
         double[][] nudges = poseNudgeSubscriber.readQueueValues();
-        for (double[] nudge : nudges) {
-            if (nudge.length != 3) {
+        for (double[] values : nudges) {
+            if (values.length != 3) {
                 continue;
             }
-            total[0] += nudge[0];
-            total[1] += nudge[1];
-            total[2] += nudge[2];
+            PoseNudge nudge = new PoseNudge(values[0], values[1], values[2]);
+            total = total.plus(nudge);
         }
         return total;
     }

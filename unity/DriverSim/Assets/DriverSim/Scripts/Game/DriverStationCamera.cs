@@ -1,13 +1,15 @@
 using DriverSim.Field;
 using DriverSim.Net;
+using DriverSim.Util;
 using UnityEngine;
 
 namespace DriverSim.Game
 {
     /// <summary>
-    /// Puts the camera where a driver stands: behind the selected driver station, at eye height, looking
-    /// toward the center of the field (so side stations angle inward). The station comes from the robot sim's driver station (set it from the sim GUI or
-    /// the game's 1-6 keys). An overhead view is available for debugging.
+    /// Puts the camera where a driver stands: behind the selected driver station, at eye height, looking toward the
+    /// center of the field (so side stations angle inward). The station comes from the robot sim's driver station
+    /// (set it from the sim GUI or the game's 1-6 keys). An overhead view is available for debugging. Command line:
+    /// <c>--view overhead</c> starts in the overhead view; <c>--no-post</c> turns post-processing off.
     /// </summary>
     public sealed class DriverStationCamera : MonoBehaviour
     {
@@ -18,31 +20,45 @@ namespace DriverSim.Game
             Overhead,
         }
 
+        private const float MinFieldOfViewDeg = 30f; // narrowest allowed vertical field of view, degrees
+        private const float MaxFieldOfViewDeg = 100f; // widest allowed vertical field of view, degrees
+        private const float OverheadHeightM = 17f; // overhead camera height above the field center, meters
+        private const float OverheadFieldOfViewDeg = 50f; // overhead vertical field of view, degrees
+
         [Tooltip("Link to the bridge; the driver station comes from here.")]
-        public DriverSimLink link;
+        [SerializeField] private DriverSimLink link;
 
         [Tooltip("Field setup, to hide the driver station acrylic the camera looks through.")]
-        public Field.FieldSetup fieldSetup;
+        [SerializeField] private FieldSetup fieldSetup;
 
         [Tooltip("Driver eye height above the carpet, meters.")]
-        public float eyeHeightM = 1.7f;
+        [SerializeField] private float eyeHeightM = 1.7f;
 
         [Tooltip("How far behind the alliance wall the driver stands, meters.")]
-        public float behindWallM = 0.45f;
+        [SerializeField] private float behindWallM = 0.45f;
 
         [Tooltip("Downward tilt of the driver's view, degrees.")]
-        public float pitchDownDeg = 9f;
+        [SerializeField] private float pitchDownDeg = 9f;
 
         [Tooltip("Vertical field of view, degrees.")]
-        public float fieldOfViewDeg = 55f;
+        [SerializeField] private float fieldOfViewDeg = 55f;
 
         private Camera cam; // the camera this drives
         private View view = View.DriverStation; // current view
 
-        /// <summary>Current view.</summary>
-        public View CurrentView
+        /// <summary>Sets the references the camera needs; call before the scene starts.</summary>
+        /// <param name="driverSimLink">Link to the bridge.</param>
+        /// <param name="setup">Field setup that owns the driver station acrylic.</param>
+        public void SetReferences(DriverSimLink driverSimLink, FieldSetup setup)
         {
-            get { return view; }
+            link = driverSimLink;
+            fieldSetup = setup;
+        }
+
+        /// <summary>Current view.</summary>
+        public View GetView()
+        {
+            return view;
         }
 
         /// <summary>Switches to the next view.</summary>
@@ -58,21 +74,27 @@ namespace DriverSim.Game
             }
         }
 
-        /// <summary>Widens or narrows the driver's field of view.</summary>
+        /// <summary>Widens or narrows the driver's field of view, within limits.</summary>
         /// <param name="deltaDeg">Change in vertical field of view, degrees.</param>
         public void AdjustFieldOfView(float deltaDeg)
         {
-            fieldOfViewDeg = Mathf.Clamp(fieldOfViewDeg + deltaDeg, 30f, 100f);
+            float requestedDeg = fieldOfViewDeg + deltaDeg;
+            fieldOfViewDeg = Mathf.Clamp(requestedDeg, MinFieldOfViewDeg, MaxFieldOfViewDeg);
         }
+
+        // ---- Unity messages
 
         private void Awake()
         {
             cam = GetComponent<Camera>();
-            if (Util.CommandLine.GetValue("--view") == "overhead")
+
+            // command-line options
+            string viewArgument = CommandLine.GetValue("--view");
+            if (viewArgument == "overhead")
             {
                 view = View.Overhead;
             }
-            if (Util.CommandLine.HasFlag("--no-post"))
+            if (CommandLine.HasFlag("--no-post"))
             {
                 GameObject post = GameObject.Find("PostProcessing");
                 if (post != null)
@@ -84,12 +106,18 @@ namespace DriverSim.Game
 
         private void LateUpdate()
         {
+            // station chosen in the driver station, or the default
             int station = DriverStations.DefaultStation;
-            if (link != null && link.Match.Station >= 0)
+            if (link != null)
             {
-                station = link.Match.Station;
+                MatchState match = link.GetMatchState();
+                if (match.Station >= 0)
+                {
+                    station = match.Station;
+                }
             }
 
+            // place the camera
             if (view == View.Overhead)
             {
                 PlaceOverhead(station);
@@ -111,30 +139,39 @@ namespace DriverSim.Game
             }
         }
 
+        // ---- private stateful helpers
+
+        /// <summary>Stands the camera behind a driver station, at eye height, facing the field center.</summary>
+        /// <param name="station">Station index, 0..5.</param>
         private void PlaceAtDriverStation(int station)
         {
             // stand behind the wall
-            double downfieldRad = DriverStations.GetFacingRad(station);
-            double behindX = DriverStations.GetWallXM(station) - Mathf.Cos((float)downfieldRad) * behindWallM;
-            double stationY = DriverStations.GetYM(station);
-            transform.position = FieldFrame.ToWorld(behindX, stationY, eyeHeightM);
+            double downfieldRad = DriverStations.GetDownfieldHeadingRad(station);
+            double wallXFieldM = DriverStations.GetWallXFieldM(station);
+            double behindXFieldM = wallXFieldM - Mathf.Cos((float)downfieldRad) * behindWallM;
+            double stationYFieldM = DriverStations.GetYFieldM(station);
+            transform.position = FieldFrame.ConvertFieldToWorld(behindXFieldM, stationYFieldM, eyeHeightM);
 
             // face the center of the field from whichever station the driver is in
-            double toCenterX = FieldFrame.FieldLengthM / 2 - behindX;
-            double toCenterY = FieldFrame.FieldWidthM / 2 - stationY;
-            double facingRad = System.Math.Atan2(toCenterY, toCenterX);
-            Quaternion facing = FieldFrame.HeadingToRotation(facingRad);
-            transform.rotation = facing * Quaternion.Euler(pitchDownDeg, 0, 0);
+            double toCenterXM = FieldFrame.FieldLengthM / 2 - behindXFieldM;
+            double toCenterYM = FieldFrame.FieldWidthM / 2 - stationYFieldM;
+            double facingFieldRad = System.Math.Atan2(toCenterYM, toCenterXM);
+            Quaternion facing = FieldFrame.ConvertHeadingToRotation(facingFieldRad);
+            Quaternion pitch = Quaternion.Euler(pitchDownDeg, 0, 0);
+            transform.rotation = facing * pitch;
             cam.fieldOfView = fieldOfViewDeg;
         }
 
+        /// <summary>Puts the camera high above the field center, the selected alliance at the bottom of the screen.</summary>
+        /// <param name="station">Station index, 0..5.</param>
         private void PlaceOverhead(int station)
         {
-            // high above the field center, with the selected alliance at the bottom of the screen
-            transform.position = new Vector3(0, 17f, 0);
-            Quaternion facing = FieldFrame.HeadingToRotation(DriverStations.GetFacingRad(station));
-            transform.rotation = facing * Quaternion.Euler(90, 0, 0);
-            cam.fieldOfView = 50f;
+            transform.position = new Vector3(0, OverheadHeightM, 0);
+            double downfieldRad = DriverStations.GetDownfieldHeadingRad(station);
+            Quaternion facing = FieldFrame.ConvertHeadingToRotation(downfieldRad);
+            Quaternion lookDown = Quaternion.Euler(90, 0, 0);
+            transform.rotation = facing * lookDown;
+            cam.fieldOfView = OverheadFieldOfViewDeg;
         }
     }
 }

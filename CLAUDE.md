@@ -6,9 +6,23 @@ Read README.md first: architecture, tasks, protocol.
 
 - **Robot code stays unmodified.** The only change in `../FRC-2026` (branch `feature/driver-sim`) is the guarded
   `apply from` line at the end of `build.gradle`. Anything sim-specific lives here, in `bridge/` or `gradle/`.
-- **Java style follows `../FRC/STYLE.md`** (no ternaries, no streams, records for structured results, units and
-  frames in names, mini-block comments, Javadoc on everything public). Keep source files ASCII-only: the build
-  machine's default encoding is US-ASCII and javac rejects characters like `²` or `θ`.
+- **All code follows the team style guide, `../FRC/STYLE.md`** (FRC 5735 Control Freaks). Read it before writing
+  code here. Java follows it as written and is formatted with `scripts/format.java.sh` (clang-format, the team's
+  `.clang-format`, BlockIndent / 120 columns). C# (Unity) and other code follow the same rules, mapped as:
+  - no ternaries or value-computing `&&`/`||`; assign a default, then override in an `if`;
+  - no composed calls `f(g(x))`, no LINQ/streams: name each intermediate;
+  - methods are verbs (`Get`/`Set`/`Is`/`Has`/`Compute`/`Make`/`Update`/`Convert`/`Check`...); class state is read
+    with `GetX()`/`IsX()` methods, not public fields; Unity inspector references are `[SerializeField] private` with
+    `SetX(...)` setters;
+  - structured results are records: Java `record`, C# `readonly struct` with get-only properties set by its
+    constructor;
+  - units and frames in names (`headingFieldRad`, `eyeHeightM`, `turretRobotRelRad`); durations in seconds;
+  - mini blocks with a short comment each; doc comments (Javadoc / C# XML) lead with meaning, one sentence per
+    parameter, units and frames stated; no history in comments;
+  - class layout: fields (trailing comments), constructor / Unity messages, public API, private stateful helpers,
+    then private static pure helpers.
+  Keep source files ASCII-only: the build machine's default encoding is US-ASCII and javac rejects characters like
+  `²` or `θ`.
 - **The bridge runs on the robot's main loop thread** (`TimedRobot.addPeriodic`); never start threads that touch
   robot objects.
 - **Protocol changes touch both sides**: `game/RobotStateLayout.java` / `MatchStateLayout.java` and their C# mirrors
@@ -46,8 +60,10 @@ the user's display; `probeDriverSim` (see README) checks a running sim from the 
   the panels on the camera's wall. That was the "haze" in early screenshots (not a color-space bug; Linear is fine).
 - This machine renders with Mesa Intel OpenGL only: Vulkan sees just llvmpipe and NVIDIA's GL libs aren't installed.
 - Stop sims cleanly: killing the robot sim with a signal makes WPILib's native teardown abort (fmt assertion) and dump
-  multi-GB core files into FRC-2026, and the next start can fail while that happens. The game sends `quit` on exit
-  (`--stop-sim-on-exit`, passed by simulateDriverSim) so the bridge calls System.exit(0).
+  multi-GB core files into FRC-2026, and the next start can fail while that happens. `System.exit` from the robot
+  thread also crashes (SIGSEGV) when the sim GUI is loaded, because the GUI runs on the main thread. The game sends
+  `quit` on exit (`--stop-sim-on-exit`, passed by simulateDriverSim) and the bridge calls `robot.endCompetition()`;
+  WPILib's `RobotBase.startRobot` then stops the GUI (`HAL.exitMain`), shuts down the HAL and exits in order.
 - Known: the post-processing volume (tonemapping/contrast) doesn't visibly apply yet.
 - Scratch captures go to `docs/screenshots/_raw/` (git-ignored; `capture-screenshots.sh <name>` writes there).
   Every meaningful render is copied up to `docs/screenshots/NN-phaseX-what.png` (next number, never overwrite or

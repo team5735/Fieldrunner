@@ -1,4 +1,3 @@
-using System;
 using System.IO;
 using UnityEditor;
 using UnityEditor.Build.Reporting;
@@ -34,14 +33,18 @@ namespace DriverSim.Editor
             BuildWindows();
         }
 
+        /// <summary>Regenerates the scene and builds one player; exits with code 1 on failure in batch mode.</summary>
+        /// <param name="target">Platform to build.</param>
+        /// <param name="defaultRelativePath">Output path under unity/Builds when -buildOutput is not given.</param>
         private static void Build(BuildTarget target, string defaultRelativePath)
         {
             SceneBuilder.BuildScene();
 
             // output path: -buildOutput, else unity/Builds/<platform>/...
-            string projectDir = Directory.GetParent(Application.dataPath).FullName;
+            DirectoryInfo projectDirInfo = Directory.GetParent(Application.dataPath);
+            string projectDir = projectDirInfo.FullName;
             string outputPath = Path.Combine(projectDir, "..", "Builds", defaultRelativePath);
-            string overridePath = GetArgument("-buildOutput");
+            string overridePath = Util.CommandLine.GetValue("-buildOutput");
             if (!string.IsNullOrEmpty(overridePath))
             {
                 outputPath = overridePath;
@@ -63,19 +66,6 @@ namespace DriverSim.Editor
             {
                 EditorApplication.Exit(1);
             }
-        }
-
-        private static string GetArgument(string flag)
-        {
-            string[] args = Environment.GetCommandLineArgs();
-            for (int i = 0; i < args.Length - 1; i++)
-            {
-                if (args[i] == flag)
-                {
-                    return args[i + 1];
-                }
-            }
-            return null;
         }
     }
 }

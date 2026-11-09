@@ -1,8 +1,10 @@
 package driversim.tools;
 
 import edu.wpi.first.networktables.DoubleArraySubscriber;
+import edu.wpi.first.networktables.DoubleArrayTopic;
 import edu.wpi.first.networktables.NetworkTableInstance;
 import edu.wpi.first.networktables.StringPublisher;
+import edu.wpi.first.networktables.StringTopic;
 
 import driversim.game.MatchController;
 import driversim.game.MatchStateLayout;
@@ -18,17 +20,21 @@ import driversim.game.RobotStateLayout;
  * {@code -Pargs="30,station R1,start"}. Commands are sent one second apart after connecting.
  */
 public final class NtProbe {
-    private NtProbe() {
-    }
+    private static final double DEFAULT_RUN_S = 10;       // seconds to run when no duration is given
+    private static final long PRINT_PERIOD_MS = 500;      // milliseconds between state lines
+    private static final double COMMAND_SPACING_S = 1.0;  // seconds between sent commands
+
+    private NtProbe() { throw new UnsupportedOperationException("This is a utility class!"); }
 
     /**
      * Runs the probe.
      *
-     * @param args Seconds to run (default 10), then commands to send.
+     * @param args Seconds to run (optional, default 10), then commands to send.
      * @throws InterruptedException When interrupted while sleeping.
      */
     public static void main(String... args) throws InterruptedException {
-        double runS = 10;
+        // arguments
+        double runS = DEFAULT_RUN_S;
         int firstCommand = 0;
         if (args.length > 0 && args[0].matches("[0-9.]+")) {
             runS = Double.parseDouble(args[0]);
@@ -39,31 +45,41 @@ public final class NtProbe {
         NetworkTableInstance nt = NetworkTableInstance.create();
         nt.startClient4("driversim-probe");
         nt.setServer("localhost");
-        DoubleArraySubscriber robotState = nt.getDoubleArrayTopic("/DriverSim/robot/state").subscribe(new double[0]);
-        DoubleArraySubscriber matchState = nt.getDoubleArrayTopic("/DriverSim/match/state").subscribe(new double[0]);
-        StringPublisher command = nt.getStringTopic("/DriverSim/game/command").publish();
+        DoubleArrayTopic robotStateTopic = nt.getDoubleArrayTopic("/DriverSim/robot/state");
+        DoubleArraySubscriber robotState = robotStateTopic.subscribe(new double[0]);
+        DoubleArrayTopic matchStateTopic = nt.getDoubleArrayTopic("/DriverSim/match/state");
+        DoubleArraySubscriber matchState = matchStateTopic.subscribe(new double[0]);
+        StringTopic commandTopic = nt.getStringTopic("/DriverSim/game/command");
+        StringPublisher command = commandTopic.publish();
 
         // print state; send queued commands one per second once connected
         long seq = System.currentTimeMillis() % 1000000;
         int nextCommand = firstCommand;
-        double nextCommandS = 1.0;
+        double nextCommandS = COMMAND_SPACING_S;
         double startS = System.nanoTime() / 1e9;
-        double nowS = 0;
-        while (nowS < runS) {
-            Thread.sleep(500);
-            nowS = System.nanoTime() / 1e9 - startS;
-            if (nt.isConnected() && nextCommand < args.length && nowS >= nextCommandS) {
+        double elapsedS = 0;
+        while (elapsedS < runS) {
+            Thread.sleep(PRINT_PERIOD_MS);
+            elapsedS = System.nanoTime() / 1e9 - startS;
+            boolean isConnected = nt.isConnected();
+
+            // next command
+            boolean hasCommandDue = nextCommand < args.length && elapsedS >= nextCommandS;
+            if (isConnected && hasCommandDue) {
                 String wire = seq + " " + args[nextCommand];
                 command.set(wire);
                 nt.flush();
                 System.out.println("[probe] sent: " + wire);
                 seq++;
                 nextCommand++;
-                nextCommandS = nowS + 1.0;
+                nextCommandS = elapsedS + COMMAND_SPACING_S;
             }
+
+            // state line
             double[] robot = robotState.get();
             double[] match = matchState.get();
-            System.out.println("[probe] " + formatState(nt.isConnected(), robot, match));
+            String line = makeStateLine(isConnected, robot, match);
+            System.out.println("[probe] " + line);
         }
         nt.close();
         System.exit(0);
@@ -71,34 +87,50 @@ public final class NtProbe {
 
     // ---- low-level helpers (static, no side effects)
 
-    private static String formatState(boolean isConnected, double[] robot, double[] match) {
+    /**
+     * Describes the bridge's state in one line.
+     *
+     * @param isConnected Whether the probe is connected to the robot sim.
+     * @param robot       Robot state, laid out per {@link RobotStateLayout}; may be empty.
+     * @param match       Match state, laid out per {@link MatchStateLayout}; may be empty.
+     * @return Human-readable state line.
+     */
+    private static String makeStateLine(boolean isConnected, double[] robot, double[] match) {
         if (!isConnected) {
             return "not connected";
         }
         if (robot.length < RobotStateLayout.LENGTH || match.length < MatchStateLayout.LENGTH) {
             return "connected, waiting for /DriverSim state";
         }
-        MatchController.Phase phase = MatchController.Phase.values()[(int) match[MatchStateLayout.PHASE]];
+
+        // robot
+        double xFieldM = robot[RobotStateLayout.POSE_X_M];
+        double yFieldM = robot[RobotStateLayout.POSE_Y_M];
+        double headingFieldDeg = Math.toDegrees(robot[RobotStateLayout.HEADING_RAD]);
+        int isEnabled = (int) robot[RobotStateLayout.IS_ENABLED];
+        int isAutonomous = (int) robot[RobotStateLayout.IS_AUTONOMOUS];
+        double turretRobotRelDeg = Math.toDegrees(robot[RobotStateLayout.TURRET_ROBOT_REL_RAD]);
+        double hoodDeg = robot[RobotStateLayout.HOOD_DEG];
+        double flywheelRpm = robot[RobotStateLayout.FLYWHEEL_RPM];
+        double intakeArmDeg = robot[RobotStateLayout.INTAKE_ARM_DEG];
+        double rollerVolts = robot[RobotStateLayout.INTAKE_ROLLER_V];
+        double feedVolts = robot[RobotStateLayout.SPINDEX_FEED_V];
+        double climberExtension = robot[RobotStateLayout.CLIMBER_EXTENSION];
+
+        // match
+        int phaseIndex = (int) match[MatchStateLayout.PHASE];
+        MatchController.Phase phase = MatchController.Phase.values()[phaseIndex];
+        double matchTimeS = match[MatchStateLayout.MATCH_TIME_S];
+        int isBlueHubActive = (int) match[MatchStateLayout.IS_BLUE_HUB_ACTIVE];
+        int isRedHubActive = (int) match[MatchStateLayout.IS_RED_HUB_ACTIVE];
+        int station = (int) match[MatchStateLayout.STATION];
+
         return String.format(
             "pose=(%.2f, %.2f, %.0f deg) en=%d auto=%d | %s t=%.1f hubs B=%d R=%d station=%d | turret=%.0f deg "
                 + "hood=%.0f fly=%.0f rpm arm=%.0f deg roller=%.1f V feed=%.1f V climb=%.2f",
-            robot[RobotStateLayout.POSE_X_M],
-            robot[RobotStateLayout.POSE_Y_M],
-            Math.toDegrees(robot[RobotStateLayout.HEADING_RAD]),
-            (int) robot[RobotStateLayout.IS_ENABLED],
-            (int) robot[RobotStateLayout.IS_AUTONOMOUS],
-            phase,
-            match[MatchStateLayout.MATCH_TIME_S],
-            (int) match[MatchStateLayout.IS_BLUE_HUB_ACTIVE],
-            (int) match[MatchStateLayout.IS_RED_HUB_ACTIVE],
-            (int) match[MatchStateLayout.STATION],
-            Math.toDegrees(robot[RobotStateLayout.TURRET_ROBOT_REL_RAD]),
-            robot[RobotStateLayout.HOOD_DEG],
-            robot[RobotStateLayout.FLYWHEEL_RPM],
-            robot[RobotStateLayout.INTAKE_ARM_DEG],
-            robot[RobotStateLayout.INTAKE_ROLLER_V],
-            robot[RobotStateLayout.SPINDEX_FEED_V],
-            robot[RobotStateLayout.CLIMBER_EXTENSION]
+            xFieldM, yFieldM, headingFieldDeg, isEnabled, isAutonomous, phase, matchTimeS, isBlueHubActive,
+            isRedHubActive, station, turretRobotRelDeg, hoodDeg, flywheelRpm, intakeArmDeg, rollerVolts, feedVolts,
+            climberExtension
         );
     }
 }

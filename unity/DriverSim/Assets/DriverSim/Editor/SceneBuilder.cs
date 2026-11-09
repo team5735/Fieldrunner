@@ -46,7 +46,8 @@ namespace DriverSim.Editor
             field.transform.position = Vector3.zero;
             GameObject arenaFloor = GameObject.CreatePrimitive(PrimitiveType.Plane);
             arenaFloor.name = "ArenaFloor";
-            Object.DestroyImmediate(arenaFloor.GetComponent<Collider>());
+            Collider floorCollider = arenaFloor.GetComponent<Collider>();
+            Object.DestroyImmediate(floorCollider);
             arenaFloor.transform.position = new Vector3(0, -0.02f, 0);
             arenaFloor.transform.localScale = new Vector3(8, 1, 6);
             Material floorMaterial = new Material(robotMaterial);
@@ -58,13 +59,12 @@ namespace DriverSim.Editor
             GameObject root = new GameObject("DriverSim");
             DriverSimLink link = root.AddComponent<DriverSimLink>();
             FieldSetup fieldSetup = root.AddComponent<FieldSetup>();
-            fieldSetup.fieldModel = field.transform;
+            fieldSetup.SetFieldModel(field.transform);
             GameObject robotObject = new GameObject("Robot");
             robotObject.transform.SetParent(root.transform, false);
             RobotModel robot = robotObject.AddComponent<RobotModel>();
-            robot.link = link;
-            robot.baseMaterial = robotMaterial;
-            robot.labelMaterial = LoadOrCreateLabelMaterial();
+            Material labelMaterial = LoadOrCreateLabelMaterial();
+            robot.SetReferences(link, robotMaterial, labelMaterial);
 
             // driver camera
             GameObject cameraObject = new GameObject("DriverCamera");
@@ -80,21 +80,18 @@ namespace DriverSim.Editor
             cameraData.antialiasingQuality = AntialiasingQuality.High;
             cameraData.renderPostProcessing = true;
             DriverStationCamera driverCamera = cameraObject.AddComponent<DriverStationCamera>();
-            driverCamera.link = link;
-            driverCamera.fieldSetup = fieldSetup;
+            driverCamera.SetReferences(link, fieldSetup);
 
             // overlay and controls
             DebugHud hud = root.AddComponent<DebugHud>();
-            hud.link = link;
-            hud.driverCamera = driverCamera;
+            hud.SetReferences(link, driverCamera);
             GameControls controls = root.AddComponent<GameControls>();
-            controls.link = link;
-            controls.driverCamera = driverCamera;
-            controls.hud = hud;
+            controls.SetReferences(link, driverCamera, hud);
             root.AddComponent<AutoScreenshot>();
 
             // save and register
-            EditorSceneManager.SaveScene(EditorSceneManager.GetActiveScene(), ScenePath);
+            UnityEngine.SceneManagement.Scene scene = EditorSceneManager.GetActiveScene();
+            EditorSceneManager.SaveScene(scene, ScenePath);
             EditorBuildSettings.scenes = new[] { new EditorBuildSettingsScene(ScenePath, true) };
             if (AssetDatabase.LoadAssetAtPath<SceneAsset>(SampleScenePath) != null)
             {
@@ -104,6 +101,7 @@ namespace DriverSim.Editor
             Debug.Log("[Driver-Sim] scene built: " + ScenePath);
         }
 
+        /// <summary>Adds arena lighting, ambient light and the post-processing volume to the open scene.</summary>
         private static void BuildLighting()
         {
             // key light: high, angled like arena lighting, with soft shadows
@@ -145,6 +143,7 @@ namespace DriverSim.Editor
             volume.sharedProfile = profile;
         }
 
+        /// <summary>Loads the robot's base URP Lit material, creating it on first use.</summary>
         private static Material LoadOrCreateRobotMaterial()
         {
             Material material = AssetDatabase.LoadAssetAtPath<Material>(RobotMaterialPath);
@@ -152,12 +151,14 @@ namespace DriverSim.Editor
             {
                 return material;
             }
-            material = new Material(Shader.Find("Universal Render Pipeline/Lit"));
+            Shader lit = Shader.Find("Universal Render Pipeline/Lit");
+            material = new Material(lit);
             material.SetColor("_BaseColor", Color.gray);
             AssetDatabase.CreateAsset(material, RobotMaterialPath);
             return material;
         }
 
+        /// <summary>Loads the bumper-number material, creating it on first use.</summary>
         private static Material LoadOrCreateLabelMaterial()
         {
             const string path = "Assets/DriverSim/Materials/RobotLabel.mat";
@@ -166,11 +167,13 @@ namespace DriverSim.Editor
             {
                 return material;
             }
-            material = new Material(Shader.Find("DriverSim/DepthTestedText"));
+            Shader text = Shader.Find("DriverSim/DepthTestedText");
+            material = new Material(text);
             AssetDatabase.CreateAsset(material, path);
             return material;
         }
 
+        /// <summary>Sets the player settings the trainer needs.</summary>
         private static void ApplyPlayerSettings()
         {
             PlayerSettings.companyName = "FRC 5735";

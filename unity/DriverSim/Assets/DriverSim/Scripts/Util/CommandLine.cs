@@ -8,6 +8,7 @@ namespace DriverSim.Util
         /// <summary>
         /// Value following a flag, e.g. GetValue("--nt-host") for "--nt-host 10.57.35.2".
         /// </summary>
+        /// <param name="flag">Flag to look for, dashes included.</param>
         /// <returns>The value, or null when the flag is absent or has no value.</returns>
         public static string GetValue(string flag)
         {
@@ -22,7 +23,8 @@ namespace DriverSim.Util
             return null;
         }
 
-        /// <summary>True when a flag is present.</summary>
+        /// <summary>Whether a flag is present.</summary>
+        /// <param name="flag">Flag to look for, dashes included.</param>
         public static bool HasFlag(string flag)
         {
             string[] args = Environment.GetCommandLineArgs();

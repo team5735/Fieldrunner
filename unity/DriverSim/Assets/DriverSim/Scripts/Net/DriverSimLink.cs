@@ -9,65 +9,83 @@ namespace DriverSim.Net
     /// The game's connection to the Driver-Sim bridge running inside the robot sim. Owns the NT4 client, decodes
     /// robot and match state, smooths the robot state for rendering, and sends game commands.
     ///
-    /// Rendering reads <see cref="Robot"/>, which is interpolated a little behind the newest sample so motion stays
-    /// smooth despite network jitter. Override the server with the command line argument
-    /// <c>--nt-host &lt;host&gt;</c>.
+    /// Rendering reads <see cref="GetRobotState"/>, which is interpolated a little behind the newest sample so motion
+    /// stays smooth despite network jitter. Override the server with the command line argument
+    /// <c>--nt-host &lt;host&gt;</c>. With <c>--stop-sim-on-exit</c> (passed by simulateDriverSim), closing the game
+    /// tells the robot sim to exit too.
     /// </summary>
     public sealed class DriverSimLink : MonoBehaviour
     {
         private const int NtPort = 5810; // NT4 server port for robot code / WPILib sim
         private const double SubscribePeriodS = 0.01; // seconds between server sends
-        private const double RenderDelayS = 0.05; // how far behind the newest sample we render
+        private const double RenderDelayS = 0.05; // seconds the rendered state trails the newest sample
         private const double OffsetSmoothing = 0.05; // per-sample weight when tracking the clock offset
         private const int MaxSamples = 64; // robot-state history kept for interpolation
+        private const float StaleAfterS = 1f; // seconds without a sample before the robot state counts as stale
+        private const int QuitSendWaitMs = 300; // milliseconds to let the quit command go out before exiting
 
         [Tooltip("NetworkTables server host; the robot sim runs on this machine by default.")]
-        public string ntHost = "localhost";
+        [SerializeField] private string ntHost = "localhost";
 
-        private Nt4Client client; // NT4 connection
-        private int commandPublisher; // /DriverSim/game/command
-        private int nudgePublisher; // /DriverSim/game/poseNudge
-        private long nextCommandSeq; // sequence number for the next command
         private readonly List<RobotState> samples = new List<RobotState>(MaxSamples); // newest last
+        private Nt4Client client; // NT4 connection; created in Awake
+        private int commandPublisher; // /DriverSim/game/command publisher id
+        private int nudgePublisher; // /DriverSim/game/poseNudge publisher id
+        private long nextCommandSeq; // sequence number for the next command
         private double localMinusRobotS; // smoothed (local clock - robot clock), seconds
         private bool hasOffset; // localMinusRobotS has been initialized
-        private RobotState robot; // interpolated state for this frame
-        private MatchState match; // newest match state
+        private RobotState robotState; // interpolated state for this frame
+        private MatchState matchState; // newest match state
         private string bridgeInfo = ""; // bridge protocol string
-        private float lastRobotSampleTime = -1000; // Time.unscaledTime of the newest robot sample
+        private float lastSampleTimeS = -1000; // Time.unscaledTime of the newest robot sample, seconds
+        private bool isProtocolMismatch; // bridge speaks a different protocol version
 
-        /// <summary>True while connected to the robot sim's NetworkTables server.</summary>
-        public bool IsConnected
+        /// <summary>Whether the game is connected to the robot sim's NetworkTables server.</summary>
+        public bool IsConnected()
         {
-            get { return client != null && client.IsConnected; }
+            if (client == null)
+            {
+                return false;
+            }
+            return client.IsConnected();
         }
 
-        /// <summary>True when robot state has arrived within the last second.</summary>
-        public bool HasRobotState
+        /// <summary>Whether robot state has arrived within the last second.</summary>
+        public bool HasRobotState()
         {
-            get { return samples.Count > 0 && Time.unscaledTime - lastRobotSampleTime < 1f; }
+            float ageS = Time.unscaledTime - lastSampleTimeS;
+            return samples.Count > 0 && ageS < StaleAfterS;
         }
 
         /// <summary>Robot state to draw this frame (interpolated).</summary>
-        public RobotState Robot
+        public RobotState GetRobotState()
         {
-            get { return robot; }
+            return robotState;
         }
 
-        /// <summary>Newest match state.</summary>
-        public MatchState Match
+        /// <summary>Newest match state from the bridge.</summary>
+        public MatchState GetMatchState()
         {
-            get { return match; }
+            return matchState;
         }
 
-        /// <summary>Bridge protocol string, empty until received.</summary>
-        public string BridgeInfo
+        /// <summary>Bridge protocol string; empty until received.</summary>
+        public string GetBridgeInfo()
         {
-            get { return bridgeInfo; }
+            return bridgeInfo;
         }
 
-        /// <summary>True when the bridge speaks a different protocol version than this game.</summary>
-        public bool IsProtocolMismatch { get; private set; }
+        /// <summary>NetworkTables server host the game connects to.</summary>
+        public string GetNtHost()
+        {
+            return ntHost;
+        }
+
+        /// <summary>Whether the bridge speaks a different protocol version than this game.</summary>
+        public bool IsProtocolMismatch()
+        {
+            return isProtocolMismatch;
+        }
 
         /// <summary>
         /// Sends one command to the bridge, e.g. "start", "station R2", "resetPose 2 4 0". Dropped while disconnected.
@@ -87,20 +105,24 @@ namespace DriverSim.Net
         /// <summary>
         /// Pushes the robot by a small amount, e.g. out of a wall it drove into. Added to the robot's current pose.
         /// </summary>
-        /// <param name="dxM">Field-frame x change, meters.</param>
-        /// <param name="dyM">Field-frame y change, meters.</param>
-        /// <param name="dHeadingRad">Heading change, radians.</param>
-        public void SendPoseNudge(double dxM, double dyM, double dHeadingRad)
+        /// <param name="dxFieldM">Field-frame x change, meters.</param>
+        /// <param name="dyFieldM">Field-frame y change, meters.</param>
+        /// <param name="dHeadingRad">Heading change, radians, counter-clockwise positive.</param>
+        public void SendPoseNudge(double dxFieldM, double dyFieldM, double dHeadingRad)
         {
             if (client == null)
             {
                 return;
             }
-            client.SendDoubleArray(nudgePublisher, new[] { dxM, dyM, dHeadingRad });
+            double[] nudge = { dxFieldM, dyFieldM, dHeadingRad };
+            client.SendDoubleArray(nudgePublisher, nudge);
         }
+
+        // ---- Unity messages
 
         private void Awake()
         {
+            // server host from the command line
             string hostArgument = CommandLine.GetValue("--nt-host");
             if (!string.IsNullOrEmpty(hostArgument))
             {
@@ -108,8 +130,10 @@ namespace DriverSim.Net
             }
 
             // sequence numbers start from wall-clock milliseconds so a restarted game keeps counting upward
-            nextCommandSeq = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+            DateTimeOffset now = DateTimeOffset.UtcNow;
+            nextCommandSeq = now.ToUnixTimeMilliseconds();
 
+            // connect
             client = new Nt4Client(ntHost, NtPort, "DriverSim-game");
             client.SubscribePrefix(Protocol.Prefix, SubscribePeriodS);
             commandPublisher = client.Publish(Protocol.CommandTopic, "string");
@@ -126,16 +150,18 @@ namespace DriverSim.Net
             }
 
             // interpolate the robot state for this frame
-            robot = ComputeRenderState(Time.unscaledTimeAsDouble);
+            double localNowS = Time.unscaledTimeAsDouble;
+            robotState = ComputeRenderState(localNowS);
         }
 
         private void OnApplicationQuit()
         {
             // launched by ./gradlew simulateDriverSim: closing the game ends the whole session cleanly
-            if (CommandLine.HasFlag("--stop-sim-on-exit") && IsConnected)
+            bool shouldStopSim = CommandLine.HasFlag("--stop-sim-on-exit");
+            if (shouldStopSim && IsConnected())
             {
                 SendCommand("quit");
-                System.Threading.Thread.Sleep(300); // let the send go out before the process exits
+                System.Threading.Thread.Sleep(QuitSendWaitMs);
             }
         }
 
@@ -148,23 +174,27 @@ namespace DriverSim.Net
             }
         }
 
+        // ---- private stateful helpers
+
+        /// <summary>Routes one received value to the state it updates.</summary>
         private void HandleUpdate(Nt4Value update)
         {
             if (update.Topic == Protocol.RobotStateTopic)
             {
-                double[] values = ToDoubles(update.Value);
+                double[] values = ConvertToDoubles(update.Value);
                 if (RobotState.TryParse(values, out RobotState state))
                 {
-                    IsProtocolMismatch = (int)values[RobotStateLayout.ProtocolVersion] != Protocol.Version;
+                    int version = (int)values[RobotStateLayout.ProtocolVersion];
+                    isProtocolMismatch = version != Protocol.Version;
                     AddSample(state);
                 }
             }
             else if (update.Topic == Protocol.MatchStateTopic)
             {
-                double[] values = ToDoubles(update.Value);
+                double[] values = ConvertToDoubles(update.Value);
                 if (MatchState.TryParse(values, out MatchState state))
                 {
-                    match = state;
+                    matchState = state;
                 }
             }
             else if (update.Topic == Protocol.BridgeInfoTopic)
@@ -177,78 +207,87 @@ namespace DriverSim.Net
             }
         }
 
+        /// <summary>Adds a robot-state sample to the history and updates the clock offset estimate.</summary>
         private void AddSample(RobotState state)
         {
             // a robot restart sends the clock backwards: start over
-            if (samples.Count > 0 && state.TimestampS < samples[samples.Count - 1].TimestampS)
+            bool hasSamples = samples.Count > 0;
+            if (hasSamples && state.TimestampS < samples[samples.Count - 1].TimestampS)
             {
                 samples.Clear();
                 hasOffset = false;
             }
 
+            // keep a bounded history
             samples.Add(state);
             if (samples.Count > MaxSamples)
             {
                 samples.RemoveAt(0);
             }
-            lastRobotSampleTime = Time.unscaledTime;
+            lastSampleTimeS = Time.unscaledTime;
 
             // track the offset between our clock and the robot's
-            double measured = Time.unscaledTimeAsDouble - state.TimestampS;
+            double measuredOffsetS = Time.unscaledTimeAsDouble - state.TimestampS;
             if (!hasOffset)
             {
-                localMinusRobotS = measured;
+                localMinusRobotS = measuredOffsetS;
                 hasOffset = true;
             }
             else
             {
-                localMinusRobotS += (measured - localMinusRobotS) * OffsetSmoothing;
+                localMinusRobotS += (measuredOffsetS - localMinusRobotS) * OffsetSmoothing;
             }
         }
 
+        /// <summary>Robot state to draw at a local time: interpolated from history, never past the newest sample.</summary>
         private RobotState ComputeRenderState(double localNowS)
         {
             if (samples.Count == 0)
             {
-                return robot;
+                return robotState;
             }
             RobotState newest = samples[samples.Count - 1];
+            RobotState oldest = samples[0];
             if (samples.Count == 1)
             {
                 return newest;
             }
 
-            // render time on the robot's clock, never past the newest sample
+            // render time on the robot's clock
             double renderRobotS = localNowS - localMinusRobotS - RenderDelayS;
             if (renderRobotS >= newest.TimestampS)
             {
                 return newest;
             }
-            if (renderRobotS <= samples[0].TimestampS)
+            if (renderRobotS <= oldest.TimestampS)
             {
-                return samples[0];
+                return oldest;
             }
 
-            // find the bracketing pair
+            // blend the bracketing pair
             for (int i = samples.Count - 1; i > 0; i--)
             {
                 RobotState earlier = samples[i - 1];
                 RobotState later = samples[i];
                 if (renderRobotS >= earlier.TimestampS)
                 {
-                    double span = later.TimestampS - earlier.TimestampS;
+                    double spanS = later.TimestampS - earlier.TimestampS;
                     double t = 0;
-                    if (span > 1e-9)
+                    if (spanS > 1e-9)
                     {
-                        t = (renderRobotS - earlier.TimestampS) / span;
+                        t = (renderRobotS - earlier.TimestampS) / spanS;
                     }
-                    return RobotState.Lerp(earlier, later, t);
+                    return RobotState.Interpolate(earlier, later, t);
                 }
             }
             return newest;
         }
 
-        private static double[] ToDoubles(object value)
+        // ---- low-level helpers (static, no side effects)
+
+        /// <summary>Converts a decoded NT array to doubles.</summary>
+        /// <returns>The numbers, or null when the value is not an array.</returns>
+        private static double[] ConvertToDoubles(object value)
         {
             object[] items = value as object[];
             if (items == null)
@@ -258,7 +297,7 @@ namespace DriverSim.Net
             double[] result = new double[items.Length];
             for (int i = 0; i < items.Length; i++)
             {
-                result[i] = MsgPackReader.ToDouble(items[i]);
+                result[i] = MsgPackReader.ConvertToDouble(items[i]);
             }
             return result;
         }

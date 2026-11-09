@@ -13,9 +13,9 @@ import com.ctre.phoenix6.sim.TalonFXSimState;
  * positive is the direction the robot code calls positive after its {@code Inverted} setting.
  */
 public final class TalonMechanismLink {
-    private final TalonFXSimState simState; // Phoenix sim inputs/outputs for the device, chassis frame
-    private final double chassisToMechanismSign; // +1 for CounterClockwise_Positive devices, -1 for Clockwise_Positive
-    private final double rotorRotationsPerMechanismRotation; // gear ratio between rotor and mechanism
+    private final TalonFXSimState simState;       // Phoenix sim inputs/outputs for the device, chassis frame
+    private final double chassisToMechanismSign;  // +1 for CounterClockwise_Positive devices, -1 for Clockwise_Positive
+    private final double rotorRotationsPerMechanismRotation;  // gear ratio between rotor and mechanism
 
     /**
      * Opens a sim link to a TalonFX by CAN ID.

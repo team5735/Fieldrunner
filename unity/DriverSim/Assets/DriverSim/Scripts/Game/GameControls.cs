@@ -9,20 +9,39 @@ namespace DriverSim.Game
     /// <summary>
     /// Keyboard controls for running the trainer (the robot itself is driven only through the driver station):
     /// Enter starts a match, Backspace aborts it, 1-6 pick Blue 1-3 / Red 1-3, R puts the robot at its starting spot,
-    /// V switches camera view, [ and ] change the field of view, F1 toggles the debug overlay, F10 quits.
+    /// V switches camera view, [ and ] change the field of view, F1 toggles the debug details, F10 quits.
     /// </summary>
     public sealed class GameControls : MonoBehaviour
     {
-        private const float StartLineXM = 3.56f; // robot center behind the starting line, field x from own wall, meters
+        private const float StartLineXM = 3.56f; // meters from the own wall to the robot center behind the start line
+        private const float FieldOfViewStepDeg = 5f; // degrees per [ or ] press
+
+        private static readonly Key[] StationKeys =
+        {
+            Key.Digit1, Key.Digit2, Key.Digit3, Key.Digit4, Key.Digit5, Key.Digit6,
+        }; // keys for station indices 0..5
 
         [Tooltip("Link to the bridge.")]
-        public DriverSimLink link;
+        [SerializeField] private DriverSimLink link;
 
         [Tooltip("Camera to switch views on.")]
-        public DriverStationCamera driverCamera;
+        [SerializeField] private DriverStationCamera driverCamera;
 
         [Tooltip("Debug overlay to toggle.")]
-        public DebugHud hud;
+        [SerializeField] private DebugHud hud;
+
+        /// <summary>Sets the references the controls need; call before the scene starts.</summary>
+        /// <param name="driverSimLink">Link to the bridge.</param>
+        /// <param name="cameraRig">Driver camera.</param>
+        /// <param name="debugHud">Debug overlay.</param>
+        public void SetReferences(DriverSimLink driverSimLink, DriverStationCamera cameraRig, DebugHud debugHud)
+        {
+            link = driverSimLink;
+            driverCamera = cameraRig;
+            hud = debugHud;
+        }
+
+        // ---- Unity messages
 
         private void Update()
         {
@@ -33,7 +52,8 @@ namespace DriverSim.Game
             }
 
             // match control
-            if (keyboard.enterKey.wasPressedThisFrame || keyboard.numpadEnterKey.wasPressedThisFrame)
+            bool isEnterPressed = keyboard.enterKey.wasPressedThisFrame || keyboard.numpadEnterKey.wasPressedThisFrame;
+            if (isEnterPressed)
             {
                 PlaceRobotAtStart();
                 link.SendCommand("start");
@@ -43,13 +63,13 @@ namespace DriverSim.Game
                 link.SendCommand("abort");
             }
 
-            // driver station
-            Key[] stationKeys = { Key.Digit1, Key.Digit2, Key.Digit3, Key.Digit4, Key.Digit5, Key.Digit6 };
-            for (int station = 0; station < stationKeys.Length; station++)
+            // driver station and robot placement
+            for (int station = 0; station < StationKeys.Length; station++)
             {
-                if (keyboard[stationKeys[station]].wasPressedThisFrame)
+                if (keyboard[StationKeys[station]].wasPressedThisFrame)
                 {
-                    link.SendCommand("station " + DriverStations.GetWireName(station));
+                    string stationName = DriverStations.GetWireName(station);
+                    link.SendCommand("station " + stationName);
                 }
             }
             if (keyboard.rKey.wasPressedThisFrame)
@@ -64,15 +84,15 @@ namespace DriverSim.Game
             }
             if (keyboard.leftBracketKey.wasPressedThisFrame && driverCamera != null)
             {
-                driverCamera.AdjustFieldOfView(-5f);
+                driverCamera.AdjustFieldOfView(-FieldOfViewStepDeg);
             }
             if (keyboard.rightBracketKey.wasPressedThisFrame && driverCamera != null)
             {
-                driverCamera.AdjustFieldOfView(5f);
+                driverCamera.AdjustFieldOfView(FieldOfViewStepDeg);
             }
             if (keyboard.f1Key.wasPressedThisFrame && hud != null)
             {
-                hud.Toggle();
+                hud.ToggleDetails();
             }
             if (keyboard.f10Key.wasPressedThisFrame)
             {
@@ -80,26 +100,33 @@ namespace DriverSim.Game
             }
         }
 
+        // ---- private stateful helpers
+
         /// <summary>
         /// Puts the robot behind its alliance's starting line, in line with the selected driver station, facing
         /// downfield.
         /// </summary>
         private void PlaceRobotAtStart()
         {
+            // selected station, or the default
             int station = DriverStations.DefaultStation;
-            if (link.Match.Station >= 0)
+            MatchState match = link.GetMatchState();
+            if (match.Station >= 0)
             {
-                station = link.Match.Station;
+                station = match.Station;
             }
-            double xM = StartLineXM;
+
+            // start spot on that alliance's side
+            double xFieldM = StartLineXM;
             if (DriverStations.IsRed(station))
             {
-                xM = FieldFrame.FieldLengthM - StartLineXM;
+                xFieldM = FieldFrame.FieldLengthM - StartLineXM;
             }
-            double yM = DriverStations.GetYM(station);
-            double headingRad = DriverStations.GetFacingRad(station);
-            link.SendCommand(string.Format(CultureInfo.InvariantCulture, "resetPose {0:F3} {1:F3} {2:F4}", xM, yM,
-                headingRad));
+            double yFieldM = DriverStations.GetYFieldM(station);
+            double headingFieldRad = DriverStations.GetDownfieldHeadingRad(station);
+            string command = string.Format(CultureInfo.InvariantCulture, "resetPose {0:F3} {1:F3} {2:F4}", xFieldM,
+                yFieldM, headingFieldRad);
+            link.SendCommand(command);
         }
     }
 }

@@ -1,7 +1,8 @@
 package driversim;
 
-import com.ctre.phoenix6.SignalLogger;
 import com.revrobotics.util.StatusLogger;
+
+import com.ctre.phoenix6.SignalLogger;
 
 import edu.wpi.first.wpilibj.RobotBase;
 
@@ -9,6 +10,7 @@ import frc.robot.Robot;
 import frc.robot.constants.Constants;
 import frc.robot.constants.robot.CompbotTunerConstants;
 import frc.robot.constants.robot.DevbotTunerConstants;
+import frc.robot.subsystems.DrivetrainSubsystem;
 
 /**
  * Entry point for {@code ./gradlew simulateDriverSim}. Builds the robot exactly as {@code frc.robot.Main} does for the
@@ -16,8 +18,7 @@ import frc.robot.constants.robot.DevbotTunerConstants;
  * variable {@code DRIVERSIM_SELFTEST=1} to run the scripted {@link SelfTest} and exit with its result.
  */
 public final class DriverSimMain {
-    private DriverSimMain() {
-    }
+    private DriverSimMain() { throw new UnsupportedOperationException("This is a utility class!"); }
 
     /**
      * Starts the robot with the Driver-Sim bridge attached.
@@ -27,7 +28,7 @@ public final class DriverSimMain {
     public static void main(String... args) {
         SignalLogger.enableAutoLogging(false);
         StatusLogger.disableAutoLogging();
-        RobotBase.startRobot(DriverSimMain::createRobot);
+        RobotBase.startRobot(DriverSimMain::makeRobot);
     }
 
     /**
@@ -36,15 +37,27 @@ public final class DriverSimMain {
      * @return The robot to run.
      * @throws IllegalStateException When {@code Constants.CURRENT_ROBOT} is not a full-robot configuration.
      */
-    private static Robot createRobot() {
-        Robot robot = switch (Constants.CURRENT_ROBOT) {
-            case FULL_DEVBOT -> new Robot(DevbotTunerConstants.createDrivetrain(), false);
-            case FULL_COMPBOT -> new Robot(CompbotTunerConstants.createDrivetrain(), false);
-            case DEMO -> new Robot(CompbotTunerConstants.createDrivetrain(), true);
-            default -> throw new IllegalStateException(
+    private static Robot makeRobot() {
+        // the same robot frc.robot.Main builds
+        Robot robot;
+        switch (Constants.CURRENT_ROBOT) {
+        case FULL_DEVBOT -> {
+            DrivetrainSubsystem drivetrain = DevbotTunerConstants.createDrivetrain();
+            robot = new Robot(drivetrain, false);
+        }
+        case FULL_COMPBOT -> {
+            DrivetrainSubsystem drivetrain = CompbotTunerConstants.createDrivetrain();
+            robot = new Robot(drivetrain, false);
+        }
+        case DEMO -> {
+            DrivetrainSubsystem drivetrain = CompbotTunerConstants.createDrivetrain();
+            robot = new Robot(drivetrain, true);
+        }
+        default ->
+            throw new IllegalStateException(
                 "Driver-Sim needs a full robot; Constants.CURRENT_ROBOT is " + Constants.CURRENT_ROBOT
             );
-        };
+        }
 
         // bridge runs on the robot's loop thread, between robot loops
         DriverSimBridge bridge = new DriverSimBridge(robot);

@@ -13,12 +13,6 @@ package driversim.mech;
  * @param climberExtension           Climber travel, 0 fully retracted to 1 fully extended.
  */
 public record MechanismSnapshot(
-    double turretAngleRobotRelRadians,
-    double hoodAngleDegrees,
-    double flywheelRpm,
-    double intakeArmAngleDegrees,
-    double intakeRollerVolts,
-    double spindexFeedVolts,
-    double spindexWheelVolts,
-    double climberExtension
+    double turretAngleRobotRelRadians, double hoodAngleDegrees, double flywheelRpm, double intakeArmAngleDegrees,
+    double intakeRollerVolts, double spindexFeedVolts, double spindexWheelVolts, double climberExtension
 ) {}

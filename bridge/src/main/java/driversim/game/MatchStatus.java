@@ -14,12 +14,6 @@ package driversim.game;
  * @param isRedHubActive    Whether the red hub currently scores.
  */
 public record MatchStatus(
-    MatchController.Phase phase,
-    boolean isFieldControlled,
-    boolean isEnabled,
-    boolean isAutonomous,
-    double matchTimeS,
-    String gameMessage,
-    boolean isBlueHubActive,
-    boolean isRedHubActive
+    MatchController.Phase phase, boolean isFieldControlled, boolean isEnabled, boolean isAutonomous, double matchTimeS,
+    String gameMessage, boolean isBlueHubActive, boolean isRedHubActive
 ) {}

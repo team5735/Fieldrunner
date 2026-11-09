@@ -11,18 +11,18 @@ package driversim.mech;
  * its own position and velocity history.
  */
 public final class FeedforwardMechanismSim {
-    private static final double SUBSTEP_S = 0.001; // seconds, integration step; keeps small-kA mechanisms stable
-    private static final double STOPPED_RPS = 1e-6; // rotations/s, below this the mechanism counts as stationary
+    private static final double SUBSTEP_S = 0.001;   // seconds, integration step; keeps small-kA mechanisms stable
+    private static final double STOPPED_RPS = 1e-6;  // rotations/s, below this the mechanism counts as stationary
 
-    private final double kS; // volts, static friction
-    private final double kV; // volts per (rotation/s)
-    private final double kA; // volts per (rotation/s^2)
-    private final double kG; // volts, gravity torque when the arm is horizontal; 0 for no gravity
-    private final double minPositionRotations; // hard stop, mechanism rotations
-    private final double maxPositionRotations; // hard stop, mechanism rotations
+    private final double kS;                    // volts, static friction
+    private final double kV;                    // volts per (rotation/s)
+    private final double kA;                    // volts per (rotation/s^2)
+    private final double kG;                    // volts, gravity torque when the arm is horizontal; 0 for no gravity
+    private final double minPositionRotations;  // hard stop, mechanism rotations
+    private final double maxPositionRotations;  // hard stop, mechanism rotations
 
-    private double positionRotations; // current mechanism position
-    private double velocityRps; // current mechanism velocity, rotations/s
+    private double positionRotations;  // current mechanism position
+    private double velocityRps;        // current mechanism velocity, rotations/s
 
     /**
      * Creates a mechanism resting at a starting position.
@@ -37,12 +37,7 @@ public final class FeedforwardMechanismSim {
      * @throws IllegalArgumentException When kV or kA is not positive, or the hard stops are out of order.
      */
     public FeedforwardMechanismSim(
-        double kS,
-        double kV,
-        double kA,
-        double kG,
-        double minPositionRotations,
-        double maxPositionRotations,
+        double kS, double kV, double kA, double kG, double minPositionRotations, double maxPositionRotations,
         double startRotations
     ) {
         if (kV <= 0 || kA <= 0) {
@@ -85,19 +80,21 @@ public final class FeedforwardMechanismSim {
      *
      * @param deltaRps Change in velocity, mechanism rotations/s.
      */
-    public void addVelocity(double deltaRps) {
-        velocityRps += deltaRps;
-    }
+    public void addVelocity(double deltaRps) { velocityRps += deltaRps; }
 
-    /** @return Current position, mechanism rotations. */
-    public double getPositionRotations() {
-        return positionRotations;
-    }
+    /**
+     * Reports where the mechanism is.
+     *
+     * @return Current position, mechanism rotations.
+     */
+    public double getPositionRotations() { return positionRotations; }
 
-    /** @return Current velocity, mechanism rotations/s. */
-    public double getVelocityRps() {
-        return velocityRps;
-    }
+    /**
+     * Reports how fast the mechanism is moving.
+     *
+     * @return Current velocity, mechanism rotations/s.
+     */
+    public double getVelocityRps() { return velocityRps; }
 
     // ---- private stateful helpers
 
@@ -148,9 +145,15 @@ public final class FeedforwardMechanismSim {
 
     // ---- low-level helpers (static, no side effects)
 
-    private static double clamp(double value, double low, double high) {
-        return Math.max(low, Math.min(high, value));
-    }
+    /**
+     * Limits a value to a range.
+     *
+     * @param value Value to limit.
+     * @param low   Lowest allowed value.
+     * @param high  Highest allowed value; must not be below low.
+     * @return The value, moved into [low, high].
+     */
+    private static double clamp(double value, double low, double high) { return Math.max(low, Math.min(high, value)); }
 
     /**
      * Position and velocity of the mechanism at an instant.

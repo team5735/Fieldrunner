@@ -16,6 +16,9 @@ namespace DriverSim.Net
     public readonly struct Nt4Value
     {
         /// <summary>Creates an update.</summary>
+        /// <param name="topic">Full topic name.</param>
+        /// <param name="serverTimeMicros">Server timestamp of the value, microseconds.</param>
+        /// <param name="value">Decoded value.</param>
         public Nt4Value(string topic, long serverTimeMicros, object value)
         {
             Topic = topic;
@@ -45,9 +48,10 @@ namespace DriverSim.Net
     {
         private const string SubprotocolV41 = "v4.1.networktables.first.wpi.edu"; // NT 4.1
         private const string SubprotocolV40 = "networktables.first.wpi.edu"; // NT 4.0 fallback
-        private const int ReconnectDelayMs = 1000; // wait between connection attempts
-        private const int TimeSyncPeriodMs = 3000; // how often to re-measure the server clock offset
-        private const int ReceiveBufferBytes = 64 * 1024; // receive chunk size
+        private const int ReconnectDelayMs = 1000; // milliseconds between connection attempts
+        private const int TimeSyncPeriodMs = 3000; // milliseconds between server clock offset measurements
+        private const int ReceiveBufferBytes = 64 * 1024; // receive chunk size, bytes
+        private const double KeepAliveS = 1; // seconds between WebSocket keep-alive pings
 
         private readonly Uri serverUri; // ws://host:port/nt/name
         private readonly CancellationTokenSource stop = new CancellationTokenSource(); // ends all background work
@@ -59,8 +63,8 @@ namespace DriverSim.Net
         private readonly Dictionary<int, string> publishMessages = new Dictionary<int, string>(); // pubuid -> JSON
         private readonly Dictionary<long, string> topicNames = new Dictionary<long, string>(); // server id -> name
         private ClientWebSocket socket; // current connection, null between attempts
-        private long serverOffsetMicros; // server time minus local time
-        private int nextUid = 1; // next subuid/pubuid
+        private long serverOffsetMicros; // server time minus local time, microseconds
+        private int nextUid; // next subuid/pubuid
         private volatile bool isConnected; // true while the socket is open
 
         /// <summary>
@@ -71,42 +75,52 @@ namespace DriverSim.Net
         /// <param name="clientName">Name shown in the server's client list.</param>
         public Nt4Client(string host, int port, string clientName)
         {
-            serverUri = new Uri("ws://" + host + ":" + port + "/nt/" + Uri.EscapeDataString(clientName));
+            string escapedName = Uri.EscapeDataString(clientName);
+            serverUri = new Uri("ws://" + host + ":" + port + "/nt/" + escapedName);
+            socket = null;
+            serverOffsetMicros = 0;
+            nextUid = 1;
+            isConnected = false;
         }
 
-        /// <summary>True while connected to the server.</summary>
-        public bool IsConnected
+        /// <summary>Whether the client is connected to the server.</summary>
+        public bool IsConnected()
         {
-            get { return isConnected; }
+            return isConnected;
         }
 
-        /// <summary>Current server time, microseconds (local clock plus the measured offset).</summary>
-        public long ServerTimeMicros
+        /// <summary>Current server time: the local clock plus the measured offset.</summary>
+        /// <returns>Server time, microseconds.</returns>
+        public long GetServerTimeMicros()
         {
-            get { return LocalMicros() + Interlocked.Read(ref serverOffsetMicros); }
+            long localMicros = GetLocalMicros();
+            long offsetMicros = Interlocked.Read(ref serverOffsetMicros);
+            return localMicros + offsetMicros;
         }
 
         /// <summary>Starts the background connect/receive loop.</summary>
         public void Start()
         {
-            Task.Run(() => RunAsync(stop.Token));
+            CancellationToken token = stop.Token;
+            Task.Run(() => RunAsync(token));
         }
 
         /// <summary>
         /// Subscribes to every topic whose name starts with a prefix. Kept across reconnects.
         /// </summary>
         /// <param name="prefix">Topic name prefix, e.g. "/DriverSim/".</param>
-        /// <param name="periodicS">How often the server may send updates, seconds.</param>
+        /// <param name="periodicS">Shortest time between updates the server sends, seconds.</param>
         public void SubscribePrefix(string prefix, double periodicS)
         {
+            string quotedPrefix = MiniJson.MakeJsonString(prefix);
+            string periodicText = periodicS.ToString(CultureInfo.InvariantCulture);
             string message;
             lock (stateLock)
             {
                 int subuid = nextUid;
                 nextUid++;
-                message = "{\"method\":\"subscribe\",\"params\":{\"topics\":[" + MiniJson.Quote(prefix)
-                    + "],\"subuid\":" + subuid + ",\"options\":{\"prefix\":true,\"periodic\":"
-                    + periodicS.ToString(CultureInfo.InvariantCulture) + "}}}";
+                message = "{\"method\":\"subscribe\",\"params\":{\"topics\":[" + quotedPrefix + "],\"subuid\":"
+                    + subuid + ",\"options\":{\"prefix\":true,\"periodic\":" + periodicText + "}}}";
                 subscribeMessages.Add(message);
             }
             SendTextIfConnected("[" + message + "]");
@@ -120,14 +134,16 @@ namespace DriverSim.Net
         /// <returns>Publisher id to pass to the Send methods.</returns>
         public int Publish(string topic, string type)
         {
+            string quotedTopic = MiniJson.MakeJsonString(topic);
+            string quotedType = MiniJson.MakeJsonString(type);
             int pubuid;
             string message;
             lock (stateLock)
             {
                 pubuid = nextUid;
                 nextUid++;
-                message = "{\"method\":\"publish\",\"params\":{\"name\":" + MiniJson.Quote(topic) + ",\"pubuid\":"
-                    + pubuid + ",\"type\":" + MiniJson.Quote(type) + ",\"properties\":{}}}";
+                message = "{\"method\":\"publish\",\"params\":{\"name\":" + quotedTopic + ",\"pubuid\":" + pubuid
+                    + ",\"type\":" + quotedType + ",\"properties\":{}}}";
                 publishMessages[pubuid] = message;
             }
             SendTextIfConnected("[" + message + "]");
@@ -135,14 +151,19 @@ namespace DriverSim.Net
         }
 
         /// <summary>Sends a string value on a published topic; dropped while disconnected.</summary>
+        /// <param name="pubuid">Publisher id from <see cref="Publish"/>.</param>
+        /// <param name="value">Text to send.</param>
         public void SendString(int pubuid, string value)
         {
             MsgPackWriter writer = StartValueMessage(pubuid, Nt4Types.String);
             writer.WriteString(value);
-            SendBinaryIfConnected(writer.ToArray());
+            byte[] data = writer.GetBytes();
+            SendBinaryIfConnected(data);
         }
 
         /// <summary>Sends a double[] value on a published topic; dropped while disconnected.</summary>
+        /// <param name="pubuid">Publisher id from <see cref="Publish"/>.</param>
+        /// <param name="values">Numbers to send.</param>
         public void SendDoubleArray(int pubuid, double[] values)
         {
             MsgPackWriter writer = StartValueMessage(pubuid, Nt4Types.DoubleArray);
@@ -151,10 +172,13 @@ namespace DriverSim.Net
             {
                 writer.WriteDouble(value);
             }
-            SendBinaryIfConnected(writer.ToArray());
+            byte[] data = writer.GetBytes();
+            SendBinaryIfConnected(data);
         }
 
         /// <summary>Takes the oldest received value update, if any.</summary>
+        /// <param name="value">The update, when one was waiting.</param>
+        /// <returns>False when no update was waiting.</returns>
         public bool TryDequeue(out Nt4Value value)
         {
             return received.TryDequeue(out value);
@@ -172,16 +196,17 @@ namespace DriverSim.Net
             }
         }
 
-        // ---- connection loop
+        // ---- connection loop (background tasks)
 
         private async Task RunAsync(CancellationToken token)
         {
             while (!token.IsCancellationRequested)
             {
+                // one connection attempt and its lifetime
                 ClientWebSocket ws = new ClientWebSocket();
                 ws.Options.AddSubProtocol(SubprotocolV41);
                 ws.Options.AddSubProtocol(SubprotocolV40);
-                ws.Options.KeepAliveInterval = TimeSpan.FromSeconds(1);
+                ws.Options.KeepAliveInterval = TimeSpan.FromSeconds(KeepAliveS);
                 try
                 {
                     await ws.ConnectAsync(serverUri, token).ConfigureAwait(false);
@@ -192,7 +217,7 @@ namespace DriverSim.Net
                     }
                     isConnected = true;
                     await SendAnnouncementsAsync(ws, token).ConfigureAwait(false);
-                    Task timeSync = TimeSyncLoopAsync(ws, token);
+                    Task timeSync = RunTimeSyncAsync(ws, token);
                     await ReceiveLoopAsync(ws, token).ConfigureAwait(false);
                     await timeSync.ConfigureAwait(false);
                 }
@@ -203,6 +228,8 @@ namespace DriverSim.Net
                 isConnected = false;
                 socket = null;
                 ws.Dispose();
+
+                // wait before trying again
                 try
                 {
                     await Task.Delay(ReconnectDelayMs, token).ConfigureAwait(false);
@@ -222,28 +249,31 @@ namespace DriverSim.Net
                 messages.AddRange(publishMessages.Values);
                 messages.AddRange(subscribeMessages);
             }
-            if (messages.Count > 0)
+            if (messages.Count == 0)
             {
-                string frame = "[" + string.Join(",", messages) + "]";
-                await SendAsync(ws, Encoding.UTF8.GetBytes(frame), WebSocketMessageType.Text, token)
-                    .ConfigureAwait(false);
+                return;
             }
+            string joined = string.Join(",", messages);
+            byte[] frame = Encoding.UTF8.GetBytes("[" + joined + "]");
+            await SendAsync(ws, frame, WebSocketMessageType.Text, token).ConfigureAwait(false);
         }
 
-        private async Task TimeSyncLoopAsync(ClientWebSocket ws, CancellationToken token)
+        private async Task RunTimeSyncAsync(ClientWebSocket ws, CancellationToken token)
         {
             while (!token.IsCancellationRequested && ws.State == WebSocketState.Open)
             {
                 // [-1, 0, int, localTime]: the server echoes our time with its own as the timestamp
+                long localMicros = GetLocalMicros();
                 MsgPackWriter writer = new MsgPackWriter();
                 writer.WriteArrayHeader(4);
                 writer.WriteInt(-1);
                 writer.WriteInt(0);
                 writer.WriteInt(Nt4Types.Int);
-                writer.WriteInt(LocalMicros());
+                writer.WriteInt(localMicros);
+                byte[] data = writer.GetBytes();
                 try
                 {
-                    await SendAsync(ws, writer.ToArray(), WebSocketMessageType.Binary, token).ConfigureAwait(false);
+                    await SendAsync(ws, data, WebSocketMessageType.Binary, token).ConfigureAwait(false);
                     await Task.Delay(TimeSyncPeriodMs, token).ConfigureAwait(false);
                 }
                 catch (Exception)
@@ -256,6 +286,7 @@ namespace DriverSim.Net
         private async Task ReceiveLoopAsync(ClientWebSocket ws, CancellationToken token)
         {
             byte[] chunk = new byte[ReceiveBufferBytes];
+            ArraySegment<byte> chunkSegment = new ArraySegment<byte>(chunk);
             byte[] message = new byte[ReceiveBufferBytes];
             while (!token.IsCancellationRequested && ws.State == WebSocketState.Open)
             {
@@ -264,23 +295,26 @@ namespace DriverSim.Net
                 WebSocketReceiveResult result;
                 do
                 {
-                    result = await ws.ReceiveAsync(new ArraySegment<byte>(chunk), token).ConfigureAwait(false);
+                    result = await ws.ReceiveAsync(chunkSegment, token).ConfigureAwait(false);
                     if (result.MessageType == WebSocketMessageType.Close)
                     {
                         return;
                     }
-                    if (length + result.Count > message.Length)
+                    int needed = length + result.Count;
+                    if (needed > message.Length)
                     {
-                        Array.Resize(ref message, Math.Max(message.Length * 2, length + result.Count));
+                        int newSize = Math.Max(message.Length * 2, needed);
+                        Array.Resize(ref message, newSize);
                     }
                     Array.Copy(chunk, 0, message, length, result.Count);
-                    length += result.Count;
+                    length = needed;
                 } while (!result.EndOfMessage);
 
                 // dispatch it
                 if (result.MessageType == WebSocketMessageType.Text)
                 {
-                    HandleText(Encoding.UTF8.GetString(message, 0, length));
+                    string text = Encoding.UTF8.GetString(message, 0, length);
+                    HandleText(text);
                 }
                 else
                 {
@@ -289,7 +323,7 @@ namespace DriverSim.Net
             }
         }
 
-        // ---- incoming messages
+        // ---- incoming messages (receive task)
 
         private void HandleText(string text)
         {
@@ -307,21 +341,23 @@ namespace DriverSim.Net
                 }
                 string method = message["method"] as string;
                 Dictionary<string, object> parameters = message["params"] as Dictionary<string, object>;
-                if (parameters == null)
+                if (parameters == null || !parameters.ContainsKey("id"))
                 {
                     continue;
                 }
-                if (method == "announce" && parameters.ContainsKey("id") && parameters.ContainsKey("name"))
+
+                // topic ids come and go as publishers appear and disappear
+                long id = (long)(double)parameters["id"];
+                if (method == "announce" && parameters.ContainsKey("name"))
                 {
-                    long id = (long)(double)parameters["id"];
+                    string name = parameters["name"] as string;
                     lock (stateLock)
                     {
-                        topicNames[id] = parameters["name"] as string;
+                        topicNames[id] = name;
                     }
                 }
-                else if (method == "unannounce" && parameters.ContainsKey("id"))
+                else if (method == "unannounce")
                 {
-                    long id = (long)(double)parameters["id"];
                     lock (stateLock)
                     {
                         topicNames.Remove(id);
@@ -333,7 +369,7 @@ namespace DriverSim.Net
         private void HandleBinary(byte[] data, int length)
         {
             MsgPackReader reader = new MsgPackReader(data, length);
-            while (reader.HasMore)
+            while (reader.HasMore())
             {
                 object[] message = reader.Read() as object[];
                 if (message == null || message.Length != 4)
@@ -347,14 +383,14 @@ namespace DriverSim.Net
                 if (topicId == -1)
                 {
                     long sentMicros = (long)message[3];
-                    long nowMicros = LocalMicros();
-                    long halfRoundTrip = (nowMicros - sentMicros) / 2;
-                    long offset = timestampMicros + halfRoundTrip - nowMicros;
-                    Interlocked.Exchange(ref serverOffsetMicros, offset);
+                    long nowMicros = GetLocalMicros();
+                    long halfRoundTripMicros = (nowMicros - sentMicros) / 2;
+                    long offsetMicros = timestampMicros + halfRoundTripMicros - nowMicros;
+                    Interlocked.Exchange(ref serverOffsetMicros, offsetMicros);
                     continue;
                 }
 
-                // value update
+                // value update for a known topic
                 string topic;
                 lock (stateLock)
                 {
@@ -362,7 +398,8 @@ namespace DriverSim.Net
                 }
                 if (topic != null)
                 {
-                    received.Enqueue(new Nt4Value(topic, timestampMicros, message[3]));
+                    Nt4Value update = new Nt4Value(topic, timestampMicros, message[3]);
+                    received.Enqueue(update);
                 }
             }
         }
@@ -371,10 +408,11 @@ namespace DriverSim.Net
 
         private MsgPackWriter StartValueMessage(int pubuid, int typeId)
         {
+            long serverTimeMicros = GetServerTimeMicros();
             MsgPackWriter writer = new MsgPackWriter();
             writer.WriteArrayHeader(4);
             writer.WriteInt(pubuid);
-            writer.WriteInt(ServerTimeMicros);
+            writer.WriteInt(serverTimeMicros);
             writer.WriteInt(typeId);
             return writer;
         }
@@ -384,7 +422,8 @@ namespace DriverSim.Net
             ClientWebSocket ws = socket;
             if (ws != null && isConnected)
             {
-                _ = SendAsync(ws, Encoding.UTF8.GetBytes(text), WebSocketMessageType.Text, stop.Token);
+                byte[] data = Encoding.UTF8.GetBytes(text);
+                _ = SendAsync(ws, data, WebSocketMessageType.Text, stop.Token);
             }
         }
 
@@ -404,7 +443,8 @@ namespace DriverSim.Net
             {
                 if (ws.State == WebSocketState.Open)
                 {
-                    await ws.SendAsync(new ArraySegment<byte>(data), type, true, token).ConfigureAwait(false);
+                    ArraySegment<byte> segment = new ArraySegment<byte>(data);
+                    await ws.SendAsync(segment, type, true, token).ConfigureAwait(false);
                 }
             }
             catch (Exception)
@@ -417,7 +457,7 @@ namespace DriverSim.Net
             }
         }
 
-        private long LocalMicros()
+        private long GetLocalMicros()
         {
             return clock.ElapsedTicks * 1000000L / Stopwatch.Frequency;
         }

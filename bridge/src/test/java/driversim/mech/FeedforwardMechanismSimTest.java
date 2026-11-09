@@ -6,9 +6,9 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import org.junit.jupiter.api.Test;
 
 class FeedforwardMechanismSimTest {
-    private static final double KS = 0.35; // volts (turret's)
-    private static final double KV = 0.75; // volts per rotation/s
-    private static final double KA = 0.4; // volts per rotation/s^2
+    private static final double KS = 0.35;  // volts (turret's)
+    private static final double KV = 0.75;  // volts per rotation/s
+    private static final double KA = 0.4;   // volts per rotation/s^2
 
     @Test
     void reachesFeedforwardSteadyStateSpeed() {
