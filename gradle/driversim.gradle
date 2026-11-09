@@ -1,7 +1,8 @@
 // Driver-Sim: driver-training game on top of WPILib simulation.
 //
 // Applied from the robot project's build.gradle with:
-//   if (file('../Driver-Sim/gradle/driversim.gradle').exists()) { apply from: '../Driver-Sim/gradle/driversim.gradle' }
+//   if (file('../Fieldrunner/gradle/driversim.gradle').exists()) {
+//       apply from: '../Fieldrunner/gradle/driversim.gradle' }
 //
 // Tasks (all in the "driver sim" group):
 //   simulateDriverSim  - robot code + bridge in the normal WPILib sim (sim GUI on), and launches the Unity game.
@@ -9,7 +10,7 @@
 //   selfTestDriverSimWithGame - the same plus the built Unity game, checking that its collisions reach the robot code.
 //   testDriverSim      - unit tests for the bridge's pure logic.
 //
-// The bridge (Driver-Sim/bridge) is compiled as its own source set against the robot code; nothing in the robot's
+// The bridge (Fieldrunner/bridge) is compiled as its own source set against the robot code; nothing in the robot's
 // src/ changes. When a Driver-Sim run task is requested, GradleRIO's own simulateJavaRelease task is reconfigured to
 // start driversim.DriverSimMain instead of the robot's Main, so WPILib's native libraries and HAL sim extensions are
 // set up exactly as for ./gradlew simulateJava. Plain simulateJava is unaffected.
@@ -81,7 +82,7 @@ if (isDriverSimRun || isDriverSimSelfTest) {
                 def game = findDriverSimGame(driverSimRoot)
                 if (game == null) {
                     logger.lifecycle('[Driver-Sim] Unity game not built yet; running robot sim + bridge only. '
-                            + 'Build it with Driver-Sim/scripts/build-unity.sh, or set DRIVERSIM_GAME to its path.')
+                            + 'Build it with Fieldrunner/scripts/build-unity.sh, or set DRIVERSIM_GAME to its path.')
                 } else {
                     // DRIVERSIM_GAME_ARGS: extra space-separated arguments for the game, e.g. "--nt-host 10.57.35.2"
                     def command = [game.absolutePath, '--stop-sim-on-exit']
@@ -155,7 +156,7 @@ tasks.register('selfTestDriverSim') {
 }
 
 /**
- * Finds the built Unity game: DRIVERSIM_GAME if set, else the platform build under Driver-Sim/unity/Builds.
+ * Finds the built Unity game: DRIVERSIM_GAME if set, else the platform build under Fieldrunner/unity/Builds.
  * Returns null when there is none.
  */
 def findDriverSimGame(File driverSimRoot) {

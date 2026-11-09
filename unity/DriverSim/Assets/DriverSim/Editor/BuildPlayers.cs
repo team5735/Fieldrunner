@@ -7,9 +7,9 @@ using UnityEngine.Rendering;
 namespace DriverSim.Editor
 {
     /// <summary>
-    /// Batch-mode player builds. Each regenerates the scene first, then builds to Driver-Sim/unity/Builds/&lt;Platform&gt;
-    /// (where <c>./gradlew simulateDriverSim</c> looks for the game), or to the path given with
-    /// <c>-buildOutput &lt;path&gt;</c>. Exits the editor with code 1 when a build fails.
+    /// Batch-mode player builds. Each regenerates the scene first, then builds to
+    /// Fieldrunner/unity/Builds/&lt;Platform&gt; (where <c>./gradlew simulateDriverSim</c> looks for the game), or to
+    /// the path given with <c>-buildOutput &lt;path&gt;</c>. Exits the editor with code 1 when a build fails.
     ///
     /// Each build sets its platform's graphics APIs explicitly, in the order the player tries them: the first one the
     /// machine supports wins, so a player with a GPU driver uses the GPU and still starts without one.

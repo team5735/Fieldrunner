@@ -57,9 +57,9 @@ docs/screenshots/                    current renders
 
 ## Setup
 
-1. Check out `Driver-Sim` next to `FRC-2026` (same parent folder). On FRC-2026, use branch `feature/driver-sim`,
+1. Clone this repo (https://github.com/team5735/Fieldrunner) as `Fieldrunner` next to `FRC-2026` (same parent folder). On FRC-2026, use branch `feature/driver-sim`,
    whose `build.gradle` ends with one guarded line:
-   `if (file('../Driver-Sim/gradle/driversim.gradle').exists()) { apply from: '../Driver-Sim/gradle/driversim.gradle' }`
+   `if (file('../Fieldrunner/gradle/driversim.gradle').exists()) { apply from: '../Fieldrunner/gradle/driversim.gradle' }`
 2. A JDK 17 (the WPILib 2026 one is fine). Gradle downloads everything else.
 3. For the game (phase 2+): Unity Hub + Unity 6 LTS (6000.0.x) with Linux, Windows and/or Mac Build Support (Mono).
 
