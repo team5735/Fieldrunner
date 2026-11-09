@@ -78,8 +78,14 @@ if (isDriverSimRun || isDriverSimSelfTest) {
                     logger.lifecycle('[Driver-Sim] Unity game not built yet; running robot sim + bridge only. '
                             + 'Build it with Driver-Sim/scripts/build-unity.sh, or set DRIVERSIM_GAME to its path.')
                 } else {
-                    logger.lifecycle("[Driver-Sim] starting game: ${game}")
-                    gameProcess = new ProcessBuilder(game.absolutePath).inheritIO().start()
+                    // DRIVERSIM_GAME_ARGS: extra space-separated arguments for the game, e.g. "--nt-host 10.57.35.2"
+                    def command = [game.absolutePath]
+                    def extraArgs = System.getenv('DRIVERSIM_GAME_ARGS')
+                    if (extraArgs != null && !extraArgs.trim().isEmpty()) {
+                        command.addAll(extraArgs.trim().split('\\s+'))
+                    }
+                    logger.lifecycle("[Driver-Sim] starting game: ${command.join(' ')}")
+                    gameProcess = new ProcessBuilder(command).inheritIO().start()
                 }
             }
             doLast {
