@@ -19,3 +19,4 @@ phase and what changed. Scratch captures live in `_raw/` (git-ignored, ephemeral
 | 12 | Robot placed with `resetPose` overlapping the blue hub: drawn flush against the hub face; the F1 panel shows the robot code's pose has converged to the same x (3.56) after the game's corrections. |
 | 13 | Robot on the blue right bump (`resetPose 4.25 2.4 0`, Blue 1 view): raised and nosed up while the front wheels climb the near slope; the F1 panel's bump line reads rise 0.076 m, nose up 13.8 deg. |
 | 14 | Robot under the blue right trench bar with the hood down (8 deg): passes through, collision state clear. |
+| 15 | First render on the NVIDIA GPU (RTX 4090, OpenGL Core) after the container got the NVIDIA graphics libraries; same scene as before, Blue 2 in auto. |

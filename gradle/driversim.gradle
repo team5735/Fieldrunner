@@ -94,7 +94,13 @@ if (isDriverSimRun || isDriverSimSelfTest) {
                         command.addAll(extraArgs.trim().split('\\s+'))
                     }
                     logger.lifecycle("[Driver-Sim] starting game: ${command.join(' ')}")
-                    project.ext.driverSimGameProcess = new ProcessBuilder(command).inheritIO().start()
+                    def gameProcess = new ProcessBuilder(command).inheritIO()
+                    def gpuEnvironment = makeDriverSimGpuEnvironment()
+                    if (!gpuEnvironment.isEmpty()) {
+                        logger.lifecycle("[Driver-Sim] game GPU environment: ${gpuEnvironment}")
+                    }
+                    gameProcess.environment().putAll(gpuEnvironment)
+                    project.ext.driverSimGameProcess = gameProcess.start()
                 }
             }
             finalizedBy 'stopDriverSimGame'
@@ -169,4 +175,33 @@ def findDriverSimGame(File driverSimRoot) {
         return game
     }
     return null
+}
+
+/**
+ * Makes the environment that steers the game (only the game, not the robot sim) to the discrete GPU on Linux laptops
+ * with hybrid graphics: NVIDIA PRIME render offload when the NVIDIA driver is loaded, else Mesa's DRI_PRIME when there
+ * is more than one GPU. Windows and macOS pick the GPU themselves (the Unity Windows player asks NVIDIA Optimus and AMD
+ * switchable graphics for the high-performance GPU). Set DRIVERSIM_GPU=integrated to skip this.
+ */
+def makeDriverSimGpuEnvironment() {
+    def environment = [:]
+    def os = org.gradle.internal.os.OperatingSystem.current()
+    if (!os.isLinux() || System.getenv('DRIVERSIM_GPU') == 'integrated') {
+        return environment
+    }
+
+    // NVIDIA: render offload for both OpenGL and Vulkan
+    if (new File('/proc/driver/nvidia/version').exists()) {
+        environment['__NV_PRIME_RENDER_OFFLOAD'] = '1'
+        environment['__GLX_VENDOR_LIBRARY_NAME'] = 'nvidia'
+        environment['__VK_LAYER_NV_optimus'] = 'NVIDIA_only'
+        return environment
+    }
+
+    // other drivers (Mesa, e.g. an AMD discrete GPU): the second render node
+    def renderNodes = new File('/dev/dri').list({ dir, name -> name.startsWith('renderD') } as FilenameFilter)
+    if (renderNodes != null && renderNodes.length > 1) {
+        environment['DRI_PRIME'] = '1'
+    }
+    return environment
 }

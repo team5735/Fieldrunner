@@ -59,7 +59,13 @@ the user's display; `probeDriverSim` (see README) checks a running sim from the 
 - `Field/FieldFrame.cs` holds the only field-to-Unity conversion; robot code uses the AndyMark 2026 layout size.
 - The model's driver station acrylic (`FE-00012`) is 20%-opaque gray; the camera looks through it, so FieldSetup hides
   the panels on the camera's wall. That was the "haze" in early screenshots (not a color-space bug; Linear is fine).
-- This machine renders with Mesa Intel OpenGL only: Vulkan sees just llvmpipe and NVIDIA's GL libs aren't installed.
+- This machine is a Docker container with the NVIDIA driver's graphics libraries (`NVIDIA_DRIVER_CAPABILITIES=all`): the
+  game renders on the RTX 4090 with OpenGL Core. It has no NVIDIA Vulkan ICD manifest, so Vulkan sees only llvmpipe,
+  which Unity rejects (falls back to GL); with `VK_DRIVER_FILES` pointing at a manifest for `libGLX_nvidia.so.0` the
+  game runs on Vulkan. `/dev/dri` isn't accessible (Intel GPU unusable). Check the player log's `[Driver-Sim] graphics:`
+  line.
+- `BuildPlayers` sets each platform's graphics API list (it writes them into ProjectSettings.asset) and builds the Mac
+  app universal; `mac` builds need the `mac-mono` module (`unity install-modules -e <version> -m mac-mono`).
 - Stop sims cleanly: killing the robot sim with a signal makes WPILib's native teardown abort (fmt assertion) and dump
   multi-GB core files into FRC-2026, and the next start can fail while that happens. `System.exit` from the robot
   thread also crashes (SIGSEGV) when the sim GUI is loaded, because the GUI runs on the main thread. The game sends

@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using DriverSim.Util;
 using UnityEngine;
+using UnityEngine.Rendering;
 
 namespace DriverSim.Net
 {
@@ -137,6 +138,11 @@ namespace DriverSim.Net
 
         private void Awake()
         {
+            // which GPU and graphics API the player picked, for checking that a discrete GPU is used
+            string graphicsDevice = SystemInfo.graphicsDeviceName;
+            GraphicsDeviceType graphicsApi = SystemInfo.graphicsDeviceType;
+            Debug.Log("[Driver-Sim] graphics: " + graphicsDevice + " (" + graphicsApi + ")");
+
             // server host from the command line
             string hostArgument = CommandLine.GetValue("--nt-host");
             if (!string.IsNullOrEmpty(hostArgument))

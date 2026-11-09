@@ -1,11 +1,12 @@
 #!/usr/bin/env bash
 # Builds the Driver-Sim Unity game in batch mode.
 #
-#   scripts/build-unity.sh [linux|windows|all|scene]     (default: linux)
+#   scripts/build-unity.sh [linux|windows|mac|all|scene]     (default: linux)
 #
 # Output goes to unity/Builds/<Platform>/, where ./gradlew simulateDriverSim finds it. The editor version comes from
 # unity/DriverSim/ProjectSettings/ProjectVersion.txt; set UNITY_EDITOR to override the editor binary. The project must
-# not be open in the Unity editor while this runs.
+# not be open in the Unity editor while this runs. Building mac needs the editor's Mac Build Support (Mono) module:
+#   unity install-modules -e <version> -m mac-mono --accept-eula
 set -euo pipefail
 
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -20,9 +21,10 @@ fi
 case "${1:-linux}" in
     linux)   method="DriverSim.Editor.BuildPlayers.BuildLinux" ;;
     windows) method="DriverSim.Editor.BuildPlayers.BuildWindows" ;;
+    mac)     method="DriverSim.Editor.BuildPlayers.BuildMac" ;;
     all)     method="DriverSim.Editor.BuildPlayers.BuildAll" ;;
     scene)   method="DriverSim.Editor.SceneBuilder.BuildScene" ;;
-    *) echo "usage: $0 [linux|windows|all|scene]" >&2; exit 2 ;;
+    *) echo "usage: $0 [linux|windows|mac|all|scene]" >&2; exit 2 ;;
 esac
 
 log="$here/unity/Builds/build.log"
