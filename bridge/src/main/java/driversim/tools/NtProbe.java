@@ -124,11 +124,13 @@ public final class NtProbe {
         int isBlueHubActive = (int) match[MatchStateLayout.IS_BLUE_HUB_ACTIVE];
         int isRedHubActive = (int) match[MatchStateLayout.IS_RED_HUB_ACTIVE];
         int station = (int) match[MatchStateLayout.STATION];
+        int isPaused = (int) match[MatchStateLayout.IS_PAUSED];
 
         return String.format(
-            "pose=(%.2f, %.2f, %.0f deg) en=%d auto=%d | %s t=%.1f hubs B=%d R=%d station=%d | turret=%.0f deg "
+            "pose=(%.2f, %.2f, %.0f deg) en=%d auto=%d | %s t=%.1f paused=%d hubs B=%d R=%d station=%d | "
+                + "turret=%.0f deg "
                 + "hood=%.0f fly=%.0f rpm arm=%.0f deg roller=%.1f V feed=%.1f V climb=%.2f",
-            xFieldM, yFieldM, headingFieldDeg, isEnabled, isAutonomous, phase, matchTimeS, isBlueHubActive,
+            xFieldM, yFieldM, headingFieldDeg, isEnabled, isAutonomous, phase, matchTimeS, isPaused, isBlueHubActive,
             isRedHubActive, station, turretRobotRelDeg, hoodDeg, flywheelRpm, intakeArmDeg, rollerVolts, feedVolts,
             climberExtension
         );

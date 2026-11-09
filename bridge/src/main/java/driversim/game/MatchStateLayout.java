@@ -11,7 +11,8 @@ public final class MatchStateLayout {
     public static final int IS_RED_HUB_ACTIVE = 3;   // 1 when the red hub scores
     public static final int STATION = 4;             // 0..2 = Blue 1..3, 3..5 = Red 1..3, -1 unknown
     public static final int AUTO_WINNER = 5;         // 0 unknown, 1 blue, 2 red
-    public static final int LENGTH = 6;              // number of values
+    public static final int IS_PAUSED = 6;           // 1 while the session is paused (by the game or the bridge)
+    public static final int LENGTH = 7;              // number of values
 
     private MatchStateLayout() { throw new UnsupportedOperationException("This is a utility class!"); }
 }

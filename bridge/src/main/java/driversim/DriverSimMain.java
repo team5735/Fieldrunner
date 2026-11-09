@@ -16,7 +16,8 @@ import frc.robot.subsystems.DrivetrainSubsystem;
  * Entry point for {@code ./gradlew simulateDriverSim}. Builds the robot exactly as {@code frc.robot.Main} does for the
  * full-robot configurations, then attaches the {@link DriverSimBridge} to the robot's main loop. Set the environment
  * variable {@code DRIVERSIM_SELFTEST=1} to run the scripted {@link SelfTest} and exit with its result, or
- * {@code DRIVERSIM_SELFTEST=with-game} to also check collisions against a running Unity game.
+ * {@code DRIVERSIM_SELFTEST=with-game} to also check collisions against a running Unity game. The environment
+ * variable {@code DRIVERSIM_INPUT} (game, gui, selftest) says who supplies joystick input; see {@link InputOwner}.
  */
 public final class DriverSimMain {
     private DriverSimMain() { throw new UnsupportedOperationException("This is a utility class!"); }
@@ -61,7 +62,9 @@ public final class DriverSimMain {
         }
 
         // bridge runs on the robot's loop thread, between robot loops
-        DriverSimBridge bridge = new DriverSimBridge(robot);
+        InputOwner inputOwner = readInputOwner();
+        System.out.println("[Driver-Sim] input owner: " + inputOwner.getWireName());
+        DriverSimBridge bridge = new DriverSimBridge(robot, inputOwner);
         robot.addPeriodic(bridge::update, DriverSimBridge.PERIOD_S);
 
         // optional scripted self-test
@@ -80,5 +83,23 @@ public final class DriverSimMain {
             selfTest.schedule();
         }
         return robot;
+    }
+
+    // ---- low-level helpers (static, no side effects)
+
+    /**
+     * Reads who supplies joystick input from the environment variable {@code DRIVERSIM_INPUT}
+     * ({@code game}, {@code gui} or {@code selftest}).
+     *
+     * @return The named owner; {@link InputOwner#GUI} (plain WPILib simulation) when it is missing or unknown.
+     */
+    private static InputOwner readInputOwner() {
+        String text = System.getenv("DRIVERSIM_INPUT");
+        InputOwner inputOwner = InputOwner.parse(text);
+        if (inputOwner == null) {
+            System.out.println("[Driver-Sim] DRIVERSIM_INPUT is missing or unknown (" + text + "); using gui");
+            return InputOwner.GUI;
+        }
+        return inputOwner;
     }
 }

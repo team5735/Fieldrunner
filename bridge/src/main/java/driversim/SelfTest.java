@@ -6,6 +6,9 @@ import static edu.wpi.first.units.Units.RPM;
 import edu.wpi.first.hal.AllianceStationID;
 import edu.wpi.first.math.geometry.Pose2d;
 import edu.wpi.first.math.geometry.Rotation2d;
+import edu.wpi.first.networktables.DoubleArrayPublisher;
+import edu.wpi.first.networktables.DoubleArrayTopic;
+import edu.wpi.first.networktables.NetworkTableInstance;
 import edu.wpi.first.units.measure.Angle;
 import edu.wpi.first.units.measure.AngularVelocity;
 import edu.wpi.first.wpilibj.DriverStation;
@@ -28,8 +31,9 @@ import driversim.mech.MechanismSnapshot;
 /**
  * Scripted headless check that the bridge makes the real robot code work in sim: the robot enables, the turret zeroes
  * on its hall switch, the intake deploys, the flywheel reaches speed, the hood follows its servo, the climber reaches
- * its switches, the driver's stick drives the robot, the shot-gating checks all pass, and a match starts in
- * autonomous. In with-game mode it then waits for the Unity game to attach and checks that the game's collisions
+ * its switches, the driver's stick drives the robot (directly, and through the game's joystick topic), the
+ * shot-gating checks all pass, and a match starts in autonomous. In with-game mode it then waits for the Unity game
+ * to attach and checks that the game's collisions
  * reach the robot code: walls, hub and trench blocks stop the robot, a raised hood is blocked by the trench bar, and
  * bumps are drivable.
  *
@@ -39,6 +43,8 @@ import driversim.mech.MechanismSnapshot;
  * every step passed, 1 otherwise.
  */
 final class SelfTest {
+    private static final String JOYSTICK_TOPIC = "/DriverSim/game/joystick0";  // the game's virtual controller topic
+    private static final double GAME_DRIVE_DISTANCE_M = 0.5;      // meters the robot must cover under the game's stick
     private static final int DRIVER_PORT = 0;                     // driver controller port
     private static final int AXIS_LEFT_Y = 1;                     // Xbox left stick Y; pushing forward is negative
     private static final int BUTTON_B = 2;                        // Xbox B: dynamic launch at the hub
@@ -72,7 +78,8 @@ final class SelfTest {
     private final List<String> results;    // one line per finished step
     private int failureCount;              // steps that failed
     private double driveStartXMeters;      // robot field x at the start of the drive step
-    private boolean hasShotGatingPassed;   // latched once all three launch checks read true together
+    private DoubleArrayPublisher gameJoystickPublisher;  // publishes the game's joystick topic; made with the step
+    private boolean hasShotGatingPassed;                 // latched once all three launch checks read true together
 
     /**
      * Prepares a self-test against a running robot and bridge.
@@ -88,6 +95,7 @@ final class SelfTest {
         this.results = new ArrayList<>();
         this.failureCount = 0;
         this.driveStartXMeters = 0;
+        this.gameJoystickPublisher = null;
         this.hasShotGatingPassed = false;
     }
 
@@ -127,6 +135,14 @@ final class SelfTest {
         steps.add(makeStep("left stick drives robot 1 m downfield", Commands.none(), this::hasDrivenDistance, 3));
         steps.add(Commands.runOnce(this::releaseSticks));
         steps.add(Commands.waitSeconds(0.5));
+
+        // the game's virtual controller (NT topic) drives the robot the same way
+        steps.add(Commands.runOnce(this::startGameJoystickTest));
+        steps.add(makeStep(
+            "game joystick drives robot", Commands.run(this::publishGameStickForward), this::hasGameDrivenRobot, 3
+        ));
+        steps.add(Commands.runOnce(this::stopGameJoystickTest));
+        steps.add(Commands.waitSeconds(SETTLE_S));
 
         // without a game nothing collides: measure how the drivetrain accelerates and stops (report only)
         if (!isWithGame) {
@@ -299,6 +315,36 @@ final class SelfTest {
         DriverStationSim.notifyNewData();
     }
 
+    /**
+     * Starts the game-joystick step: the bridge applies the game's topic to port 0, and the robot restarts from the
+     * default pose with teleop enabled (the earlier steps may have left it disabled or far downfield).
+     */
+    private void startGameJoystickTest() {
+        NetworkTableInstance nt = NetworkTableInstance.getDefault();
+        DoubleArrayTopic joystickTopic = nt.getDoubleArrayTopic(JOYSTICK_TOPIC);
+        gameJoystickPublisher = joystickTopic.publish();
+        robot.drivetrain.resetPose(DriverSimBridge.DEFAULT_START_POSE_FIELD);
+        Pose2d poseField = robot.drivetrain.getState().Pose;
+        driveStartXMeters = poseField.getX();
+        enableTeleopBlue();
+        bridge.setSelfTestJoystickOn(true);
+    }
+
+    /** Publishes the game's left stick pushed fully forward; run every loop, as the game sends every frame. */
+    private void publishGameStickForward() {
+        double[] sample = {0, -1, 0, 0, 0, 0, 0, -1};
+        gameJoystickPublisher.set(sample);
+    }
+
+    /** Ends the game-joystick step: publishes a neutral sample, lets it land, then stops applying the topic. */
+    private void stopGameJoystickTest() {
+        double[] neutral = {0, 0, 0, 0, 0, 0, 0, -1};
+        gameJoystickPublisher.set(neutral);
+        bridge.setSelfTestJoystickOn(false);
+        gameJoystickPublisher.close();
+        releaseSticks();
+    }
+
     /** Prints where the robot ended up, so a failed collision step shows how far off it was. */
     private void printPose() {
         Pose2d poseField = robot.drivetrain.getState().Pose;
@@ -345,13 +391,13 @@ final class SelfTest {
     /** Commands the hood to the test angle; run every loop so the hood's default command stays out. */
     private void commandHoodToTarget() { robot.hood.setHoodAngle(HOOD_TARGET_DEGREES); }
 
-    /** Starts a match through the bridge, as the game's Enter key does. */
+    /** Starts a match through the bridge, as the game's Start Match menu does. */
     private void startMatchNow() {
         double nowS = Timer.getFPGATimestamp();
         bridge.startMatch(nowS);
     }
 
-    /** Aborts the match through the bridge, as the game's Backspace key does. */
+    /** Aborts the match through the bridge, as the game's Quit to Title does. */
     private void abortMatchNow() {
         double nowS = Timer.getFPGATimestamp();
         bridge.abortMatch(nowS);
@@ -445,6 +491,16 @@ final class SelfTest {
     private boolean hasDrivenDistance() {
         Pose2d poseField = robot.drivetrain.getState().Pose;
         return poseField.getX() - driveStartXMeters > DRIVE_DISTANCE_M;
+    }
+
+    /**
+     * Self-test pass condition.
+     *
+     * @return True once the robot has driven the test distance downfield under the game's stick.
+     */
+    private boolean hasGameDrivenRobot() {
+        Pose2d poseField = robot.drivetrain.getState().Pose;
+        return poseField.getX() - driveStartXMeters > GAME_DRIVE_DISTANCE_M;
     }
 
     /**

@@ -19,6 +19,10 @@ import edu.wpi.first.math.geometry.Rotation2d;
  * <li>{@code hello} - the game has connected (sent again after every reconnect); the bridge notes a game is
  * attached.</li>
  * <li>{@code quit} - the game is closing its session; the robot sim exits cleanly.</li>
+ * <li>{@code practice} - free practice: enable the robot in teleop (outside a match).</li>
+ * <li>{@code disable} - free practice: disable the robot (outside a match).</li>
+ * <li>{@code pause} - hold the match clock and disable the robot; in free practice, disable the robot.</li>
+ * <li>{@code resume} - continue a paused match in the phase it was paused in; in free practice, enable the robot.</li>
  * </ul>
  *
  * @param seq       Sequence number from the game.
@@ -29,7 +33,20 @@ import edu.wpi.first.math.geometry.Rotation2d;
  */
 public record GameCommand(long seq, Verb verb, String text, Pose2d poseField) {
     /** Command kinds. */
-    public enum Verb { START, ABORT, STATION, AUTO_WINNER, RESET_POSE, BALL_LAUNCHED, HELLO, QUIT }
+    public enum Verb {
+        START,
+        ABORT,
+        STATION,
+        AUTO_WINNER,
+        RESET_POSE,
+        BALL_LAUNCHED,
+        HELLO,
+        QUIT,
+        PRACTICE,
+        DISABLE,
+        PAUSE,
+        RESUME
+    }
 
     /**
      * Parses one command string.
@@ -72,6 +89,18 @@ public record GameCommand(long seq, Verb verb, String text, Pose2d poseField) {
         }
         if (verbText.equals("quit") && hasNoArguments) {
             return new GameCommand(seq, Verb.QUIT, "", null);
+        }
+        if (verbText.equals("practice") && hasNoArguments) {
+            return new GameCommand(seq, Verb.PRACTICE, "", null);
+        }
+        if (verbText.equals("disable") && hasNoArguments) {
+            return new GameCommand(seq, Verb.DISABLE, "", null);
+        }
+        if (verbText.equals("pause") && hasNoArguments) {
+            return new GameCommand(seq, Verb.PAUSE, "", null);
+        }
+        if (verbText.equals("resume") && hasNoArguments) {
+            return new GameCommand(seq, Verb.RESUME, "", null);
         }
 
         // verbs with one text argument

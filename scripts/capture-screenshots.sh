@@ -7,7 +7,8 @@
 #               ending in .jpg (or .png) is used as given. 3 shots, 6 s apart, starting 12 s in.
 #   probe args  comma-separated probeDriverSim args, sent one per second once connected,
 #               e.g. "40,station R2,resetPose 12 3 3.14,start"
-#   game args   extra game arguments, e.g. --view overhead
+#   game args   extra game arguments, e.g. --view overhead or --screenshot-menu controls; the game starts with
+#               --start-in practice unless they contain --start-in
 #
 # Needs a built game (scripts/build-unity.sh) and FRC-2026 next to Driver-Sim. Windows appear on the display.
 set -euo pipefail
@@ -24,7 +25,13 @@ shift 2
 log="$(mktemp)"
 ulimit -c 0 # a sim killed by the timeout must not leave multi-GB core dumps
 
-export DRIVERSIM_GAME_ARGS="--screenshot $out --screenshot-delay 12 --screenshot-count 3 --screenshot-interval 6 --quit-after-screenshot $*"
+# the game starts in free practice unless the caller picks a start mode
+start_in="--start-in practice"
+if [[ "$*" == *--start-in* ]]; then
+    start_in=""
+fi
+shot_args="--screenshot $out --screenshot-delay 12 --screenshot-count 3 --screenshot-interval 6 --quit-after-screenshot"
+export DRIVERSIM_GAME_ARGS="$shot_args $start_in $*"
 if [[ -z "${JAVA_HOME:-}" && -x "$HOME/.local/jdk-17/bin/java" ]]; then
     export JAVA_HOME="$HOME/.local/jdk-17"
 fi

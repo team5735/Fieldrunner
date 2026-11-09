@@ -1,0 +1,99 @@
+<ui:UXML xmlns:ui="UnityEngine.UIElements" editor-extension-mode="False">
+    <Style src="DriverSim.uss" />
+    <ui:VisualElement name="root" class="root" picking-mode="Ignore">
+
+        <ui:VisualElement name="screen-title" class="screen">
+            <ui:VisualElement class="panel">
+                <ui:Label text="DRIVER-SIM" class="title" />
+                <ui:Label text="FRC 5735 Control Freaks" class="subtitle" />
+                <ui:Button name="btn-start-match" text="Start Match" class="menu-button" />
+                <ui:Button name="btn-free-practice" text="Free Practice" class="menu-button" />
+                <ui:Button name="btn-controls" text="Controls" class="menu-button" />
+                <ui:Button name="btn-options" text="Options" class="menu-button" />
+                <ui:Button name="btn-quit" text="Quit" class="menu-button" />
+                <ui:Label name="title-status" text="waiting for robot sim..." class="status" />
+                <ui:Label name="title-device" text="Input: Keyboard" class="status" />
+                <ui:Label name="title-notice" text="" class="notice" />
+            </ui:VisualElement>
+        </ui:VisualElement>
+
+        <ui:VisualElement name="screen-station" class="screen">
+            <ui:VisualElement class="panel">
+                <ui:Label name="station-title" text="Choose your driver station" class="heading" />
+                <ui:VisualElement class="row">
+                    <ui:Button name="btn-station-0" text="Blue 1" class="menu-button station blue" />
+                    <ui:Button name="btn-station-1" text="Blue 2" class="menu-button station blue" />
+                    <ui:Button name="btn-station-2" text="Blue 3" class="menu-button station blue" />
+                </ui:VisualElement>
+                <ui:VisualElement class="row">
+                    <ui:Button name="btn-station-3" text="Red 1" class="menu-button station red" />
+                    <ui:Button name="btn-station-4" text="Red 2" class="menu-button station red" />
+                    <ui:Button name="btn-station-5" text="Red 3" class="menu-button station red" />
+                </ui:VisualElement>
+                <ui:Button name="btn-station-back" text="Back" class="menu-button" />
+            </ui:VisualElement>
+        </ui:VisualElement>
+
+        <ui:VisualElement name="screen-pause" class="screen">
+            <ui:VisualElement class="panel">
+                <ui:Label text="PAUSED" class="title" />
+                <ui:Button name="btn-resume" text="Resume" class="menu-button" />
+                <ui:Button name="btn-restart-match" text="Restart Match" class="menu-button" />
+                <ui:Button name="btn-reset-robot" text="Reset Robot" class="menu-button" />
+                <ui:Button name="btn-pause-controls" text="Controls" class="menu-button" />
+                <ui:Button name="btn-pause-options" text="Options" class="menu-button" />
+                <ui:Button name="btn-quit-to-title" text="Quit to Title" class="menu-button" />
+            </ui:VisualElement>
+        </ui:VisualElement>
+
+        <ui:VisualElement name="screen-controls" class="screen">
+            <ui:VisualElement class="panel wide">
+                <ui:Label text="Controls" class="heading" />
+                <ui:Label name="controls-banner" text="" class="notice" />
+                <ui:VisualElement class="controls-body">
+                    <ui:VisualElement name="controls-diagram" class="diagram" />
+                    <ui:VisualElement class="table-column">
+                        <ui:VisualElement class="table-header">
+                            <ui:Label text="Robot action" class="cell cell-action" />
+                            <ui:Label name="controls-device-heading" text="Controller" class="cell cell-input" />
+                            <ui:Label text="Keyboard" class="cell cell-input" />
+                            <ui:Label text="" class="cell cell-reset" />
+                        </ui:VisualElement>
+                        <ui:VisualElement name="controls-table" class="table" />
+                        <ui:Toggle name="controls-invert" label="Invert drive stick Y" class="option invert" />
+                    </ui:VisualElement>
+                </ui:VisualElement>
+                <ui:Label name="controls-prompt" text="" class="prompt" />
+                <ui:Label name="controls-unused" text="" class="status" />
+                <ui:Label name="controls-pause-hint" text="" class="status" />
+                <ui:VisualElement class="row">
+                    <ui:Button name="btn-controls-reset-all" text="Reset All" class="menu-button small" />
+                    <ui:Button name="btn-controls-back" text="Back" class="menu-button small" />
+                </ui:VisualElement>
+            </ui:VisualElement>
+        </ui:VisualElement>
+
+        <ui:VisualElement name="screen-options" class="screen">
+            <ui:VisualElement class="panel">
+                <ui:Label text="Options" class="heading" />
+                <ui:DropdownField name="opt-view" label="Camera view" class="option" />
+                <ui:SliderInt name="opt-fov" label="Field of view" low-value="30" high-value="100" show-input-field="true" class="option" />
+                <ui:Toggle name="opt-details" label="Show details panel" class="option" />
+                <ui:Toggle name="opt-colliders" label="Show colliders" class="option" />
+                <ui:Toggle name="opt-fullscreen" label="Fullscreen" class="option" />
+                <ui:DropdownField name="opt-resolution" label="Resolution" class="option" />
+                <ui:DropdownField name="opt-quality" label="Graphics quality" class="option" />
+                <ui:Button name="btn-options-back" text="Back" class="menu-button" />
+            </ui:VisualElement>
+        </ui:VisualElement>
+
+        <ui:VisualElement name="screen-disconnected" class="screen">
+            <ui:VisualElement class="panel">
+                <ui:Label text="Controller disconnected" class="heading" />
+                <ui:Label text="Reconnect it, or press any key to continue with the keyboard." class="message" />
+            </ui:VisualElement>
+        </ui:VisualElement>
+
+        <ui:Label name="toast" text="" class="toast" picking-mode="Ignore" />
+    </ui:VisualElement>
+</ui:UXML>

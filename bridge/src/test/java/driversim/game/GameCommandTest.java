@@ -23,6 +23,11 @@ class GameCommandTest {
         assertEquals(Verb.QUIT, quit.verb());
         assertEquals(Verb.HELLO, hello.verb());
         assertEquals(7, quit.seq());
+
+        assertEquals(Verb.PRACTICE, GameCommand.parse("9 practice").verb());
+        assertEquals(Verb.DISABLE, GameCommand.parse("10 disable").verb());
+        assertEquals(Verb.PAUSE, GameCommand.parse("11 pause").verb());
+        assertEquals(Verb.RESUME, GameCommand.parse("12 resume").verb());
     }
 
     @Test
@@ -57,6 +62,8 @@ class GameCommandTest {
             "x start",
             "1 launch",
             "1 start now",
+            "1 pause now",
+            "1 practice 1",
             "1 station G1",
             "1 autoWinner X",
             "1 resetPose 1 2",

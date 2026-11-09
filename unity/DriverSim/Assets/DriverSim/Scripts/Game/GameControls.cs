@@ -1,5 +1,3 @@
-using System.Globalization;
-using DriverSim.Field;
 using DriverSim.Net;
 using UnityEngine;
 using UnityEngine.InputSystem;
@@ -7,102 +5,80 @@ using UnityEngine.InputSystem;
 namespace DriverSim.Game
 {
     /// <summary>
-    /// Keyboard controls for running the trainer (the robot itself is driven only through the driver station):
-    /// Enter starts a match, Backspace aborts it, 1-6 pick Blue 1-3 / Red 1-3, R puts the robot at its starting spot,
-    /// V switches camera view, [ and ] change the field of view, F1 toggles the debug details, F2 shows the obstacle colliders, F10 quits.
+    /// Keyboard hotkeys for the game itself, kept off the keys the robot uses: F1 details panel, F2 colliders, F3
+    /// camera view, F4 / F5 field of view narrower / wider, F6 reset robot, F10 quit. Also watches the controller pause
+    /// chord: hold Start, then Back, for half a second. (Esc is handled by <see cref="GameFlow"/>.)
     /// </summary>
     public sealed class GameControls : MonoBehaviour
     {
-        private const float StartLineXM = 3.56f; // meters from the own wall to the robot center behind the start line
-        private const float FieldOfViewStepDeg = 5f; // degrees per [ or ] press
+        private const float ChordHoldS = 0.5f; // seconds Start and Back are held together to pause
 
-        private static readonly Key[] StationKeys =
+        [Tooltip("Game state, for pausing and resetting the robot.")]
+        [SerializeField] private GameFlow flow;
+
+        [Tooltip("The virtual controller, for the pause chord.")]
+        [SerializeField] private ControllerInput input;
+
+        [Tooltip("Display and camera settings the hotkeys change.")]
+        [SerializeField] private GameOptions options;
+
+        private float chordHeldS; // seconds Start and Back have been held together, Start first
+        private bool isChordArmed; // Start has been held since before Back was pressed
+
+        /// <summary>Sets the objects the hotkeys act on; call before the scene starts.</summary>
+        /// <param name="gameFlow">Game state.</param>
+        /// <param name="controllerInput">The virtual controller.</param>
+        /// <param name="gameOptions">Display and camera settings.</param>
+        public void SetReferences(GameFlow gameFlow, ControllerInput controllerInput, GameOptions gameOptions)
         {
-            Key.Digit1, Key.Digit2, Key.Digit3, Key.Digit4, Key.Digit5, Key.Digit6,
-        }; // keys for station indices 0..5
-
-        [Tooltip("Link to the bridge.")]
-        [SerializeField] private DriverSimLink link;
-
-        [Tooltip("Camera to switch views on.")]
-        [SerializeField] private DriverStationCamera driverCamera;
-
-        [Tooltip("Debug overlay to toggle.")]
-        [SerializeField] private DebugHud hud;
-
-        [Tooltip("Collider overlay to toggle.")]
-        [SerializeField] private ColliderDebugView colliderView;
-
-        /// <summary>Sets the references the controls need; call before the scene starts.</summary>
-        /// <param name="driverSimLink">Link to the bridge.</param>
-        /// <param name="cameraRig">Driver camera.</param>
-        /// <param name="debugHud">Debug overlay.</param>
-        /// <param name="debugColliderView">Collider overlay.</param>
-        public void SetReferences(DriverSimLink driverSimLink, DriverStationCamera cameraRig, DebugHud debugHud,
-            ColliderDebugView debugColliderView)
-        {
-            link = driverSimLink;
-            driverCamera = cameraRig;
-            hud = debugHud;
-            colliderView = debugColliderView;
+            flow = gameFlow;
+            input = controllerInput;
+            options = gameOptions;
         }
 
         // ---- Unity messages
 
         private void Update()
         {
+            UpdateHotkeys();
+            UpdatePauseChord();
+        }
+
+        // ---- private stateful helpers
+
+        /// <summary>Acts on this frame's function-key presses.</summary>
+        private void UpdateHotkeys()
+        {
             Keyboard keyboard = Keyboard.current;
-            if (keyboard == null || link == null)
+            if (keyboard == null)
             {
                 return;
             }
-
-            // match control
-            bool isEnterPressed = keyboard.enterKey.wasPressedThisFrame || keyboard.numpadEnterKey.wasPressedThisFrame;
-            if (isEnterPressed)
+            if (keyboard.f1Key.wasPressedThisFrame)
             {
-                PlaceRobotAtStart();
-                link.SendCommand("start");
+                bool isShown = options.IsDetailsShown();
+                options.SetDetailsShown(!isShown);
             }
-            if (keyboard.backspaceKey.wasPressedThisFrame)
+            if (keyboard.f2Key.wasPressedThisFrame)
             {
-                link.SendCommand("abort");
+                bool areShown = options.AreCollidersShown();
+                options.SetCollidersShown(!areShown);
             }
-
-            // driver station and robot placement
-            for (int station = 0; station < StationKeys.Length; station++)
+            if (keyboard.f3Key.wasPressedThisFrame)
             {
-                if (keyboard[StationKeys[station]].wasPressedThisFrame)
-                {
-                    string stationName = DriverStations.GetWireName(station);
-                    link.SendCommand("station " + stationName);
-                }
+                options.CycleView();
             }
-            if (keyboard.rKey.wasPressedThisFrame)
+            if (keyboard.f4Key.wasPressedThisFrame)
             {
-                PlaceRobotAtStart();
+                options.StepFieldOfView(-1);
             }
-
-            // view and overlay
-            if (keyboard.vKey.wasPressedThisFrame && driverCamera != null)
+            if (keyboard.f5Key.wasPressedThisFrame)
             {
-                driverCamera.CycleView();
+                options.StepFieldOfView(1);
             }
-            if (keyboard.leftBracketKey.wasPressedThisFrame && driverCamera != null)
+            if (keyboard.f6Key.wasPressedThisFrame)
             {
-                driverCamera.AdjustFieldOfView(-FieldOfViewStepDeg);
-            }
-            if (keyboard.rightBracketKey.wasPressedThisFrame && driverCamera != null)
-            {
-                driverCamera.AdjustFieldOfView(FieldOfViewStepDeg);
-            }
-            if (keyboard.f1Key.wasPressedThisFrame && hud != null)
-            {
-                hud.ToggleDetails();
-            }
-            if (keyboard.f2Key.wasPressedThisFrame && colliderView != null)
-            {
-                colliderView.Toggle();
+                flow.ResetRobot();
             }
             if (keyboard.f10Key.wasPressedThisFrame)
             {
@@ -110,33 +86,36 @@ namespace DriverSim.Game
             }
         }
 
-        // ---- private stateful helpers
-
-        /// <summary>
-        /// Puts the robot behind its alliance's starting line, in line with the selected driver station, facing
-        /// downfield.
-        /// </summary>
-        private void PlaceRobotAtStart()
+        /// <summary>Pauses when Start, then Back, have been held together for <see cref="ChordHoldS"/>.</summary>
+        private void UpdatePauseChord()
         {
-            // selected station, or the default
-            int station = DriverStations.DefaultStation;
-            MatchState match = link.GetMatchState();
-            if (match.Station >= 0)
+            JoystickState raw = input.GetRawState();
+            bool isStartDown = raw.IsButtonDown(VirtualControls.StartBit);
+            bool isBackDown = raw.IsButtonDown(VirtualControls.BackBit);
+            if (!flow.IsPlaying() || !isStartDown)
             {
-                station = match.Station;
+                chordHeldS = 0;
+                isChordArmed = false;
+                return;
             }
 
-            // start spot on that alliance's side
-            double xFieldM = StartLineXM;
-            if (DriverStations.IsRed(station))
+            // Start alone arms the chord; Back pressed afterwards, with Start still held, times it
+            if (!isBackDown)
             {
-                xFieldM = FieldFrame.FieldLengthM - StartLineXM;
+                chordHeldS = 0;
+                isChordArmed = true;
+                return;
             }
-            double yFieldM = DriverStations.GetYFieldM(station);
-            double headingFieldRad = DriverStations.GetDownfieldHeadingRad(station);
-            string command = string.Format(CultureInfo.InvariantCulture, "resetPose {0:F3} {1:F3} {2:F4}", xFieldM,
-                yFieldM, headingFieldRad);
-            link.SendCommand(command);
+            if (isChordArmed)
+            {
+                chordHeldS += Time.unscaledDeltaTime;
+            }
+            if (chordHeldS >= ChordHoldS)
+            {
+                chordHeldS = 0;
+                isChordArmed = false;
+                flow.OpenPause();
+            }
         }
     }
 }

@@ -12,6 +12,8 @@ import edu.wpi.first.networktables.StringTopic;
 import java.util.ArrayList;
 import java.util.List;
 
+import driversim.InputOwner;
+
 /**
  * NetworkTables 4 link between the bridge and the Unity game. All topics live under {@code /DriverSim}; the game
  * connects as an ordinary NT4 client, so AdvantageScope and dashboards can watch the same topics.
@@ -21,32 +23,40 @@ import java.util.List;
  * <ul>
  * <li>{@code /DriverSim/robot/state} (double[]) - robot pose and mechanisms; layout in {@link RobotStateLayout}.</li>
  * <li>{@code /DriverSim/match/state} (double[]) - match phase and hubs; layout in {@link MatchStateLayout}.</li>
- * <li>{@code /DriverSim/bridge/info} (string) - protocol version, for the game to check compatibility.</li>
+ * <li>{@code /DriverSim/bridge/info} (string) - {@code "version=<n> input=<owner>"}: protocol version for the game
+ * to check compatibility, and who supplies joystick input (see {@link InputOwner}).</li>
+ * <li>{@code /DriverSim/robot/rumble} (double[2]) - {left, right} controller rumble, 0..1, published on change.</li>
  * </ul>
  * Game to bridge:
  * <ul>
  * <li>{@code /DriverSim/game/command} (string) - discrete commands, see {@link GameCommand}.</li>
  * <li>{@code /DriverSim/game/poseCorrection} (double[3]) - {robotTimestampS, xFieldM, yFieldM}: where the robot should
  * have been at that robot-clock time, after the game resolved collisions; see {@link PoseCorrection}.</li>
+ * <li>{@code /DriverSim/game/joystick0} (double[8]) - the virtual Xbox controller on driver station port 0; see
+ * {@link JoystickSample}.</li>
  * </ul>
  */
 public final class GameLink {
-    public static final int PROTOCOL_VERSION = 2;       // bump when any topic layout changes
+    public static final int PROTOCOL_VERSION = 3;       // bump when any topic layout changes
     private static final double STATE_PERIOD_S = 0.01;  // seconds between state sends to the game
     private static final int QUEUE_DEPTH = 128;         // game-to-bridge values buffered between reads
     private static final long SEQ_RESTART_GAP = 1000;   // a sequence this far below the last one is a restarted game
 
     private final DoubleArrayPublisher robotStatePublisher;        // /DriverSim/robot/state
     private final DoubleArrayPublisher matchStatePublisher;        // /DriverSim/match/state
+    private final DoubleArrayPublisher rumblePublisher;            // /DriverSim/robot/rumble
     private final StringPublisher infoPublisher;                   // /DriverSim/bridge/info
     private final StringSubscriber commandSubscriber;              // /DriverSim/game/command
     private final DoubleArraySubscriber poseCorrectionSubscriber;  // /DriverSim/game/poseCorrection
+    private final DoubleArraySubscriber joystickSubscriber;        // /DriverSim/game/joystick0
     private long lastCommandSeq;  // highest command sequence number handled; repeats are dropped
 
     /**
      * Opens the topics on the default NetworkTables instance (the robot's NT server).
+     *
+     * @param inputOwner Who supplies joystick input; announced to the game in {@code /DriverSim/bridge/info}.
      */
-    public GameLink() {
+    public GameLink(InputOwner inputOwner) {
         NetworkTableInstance nt = NetworkTableInstance.getDefault();
 
         // publish/subscribe options
@@ -60,6 +70,8 @@ public final class GameLink {
         robotStatePublisher = robotStateTopic.publish(statePeriod, sendAll);
         DoubleArrayTopic matchStateTopic = nt.getDoubleArrayTopic("/DriverSim/match/state");
         matchStatePublisher = matchStateTopic.publish(statePeriod);
+        DoubleArrayTopic rumbleTopic = nt.getDoubleArrayTopic("/DriverSim/robot/rumble");
+        rumblePublisher = rumbleTopic.publish(sendAll);
         StringTopic infoTopic = nt.getStringTopic("/DriverSim/bridge/info");
         infoPublisher = infoTopic.publish();
 
@@ -69,7 +81,13 @@ public final class GameLink {
         DoubleArrayTopic poseCorrectionTopic = nt.getDoubleArrayTopic("/DriverSim/game/poseCorrection");
         poseCorrectionSubscriber = poseCorrectionTopic.subscribe(new double[0], sendAll, keepDuplicates, queueDepth);
 
-        infoPublisher.set("DriverSim bridge protocol " + PROTOCOL_VERSION);
+        DoubleArrayTopic joystickTopic = nt.getDoubleArrayTopic("/DriverSim/game/joystick0");
+        joystickSubscriber = joystickTopic.subscribe(new double[0], sendAll, keepDuplicates, queueDepth);
+
+        // announce the protocol and the input owner; start with no rumble
+        String ownerName = inputOwner.getWireName();
+        infoPublisher.set("version=" + PROTOCOL_VERSION + " input=" + ownerName);
+        rumblePublisher.set(new double[] {0, 0});
         lastCommandSeq = Long.MIN_VALUE;
     }
 
@@ -86,6 +104,16 @@ public final class GameLink {
      * @param state Values laid out per {@link MatchStateLayout}.
      */
     public void publishMatchState(double[] state) { matchStatePublisher.set(state); }
+
+    /**
+     * Sends the robot's controller rumble to the game.
+     *
+     * @param rumble Left and right motor strength, 0 to 1.
+     */
+    public void publishRumble(RumbleValues rumble) {
+        double[] values = {rumble.left(), rumble.right()};
+        rumblePublisher.set(values);
+    }
 
     /**
      * Takes every command the game has sent since the last call, oldest first, dropping malformed text and repeated
@@ -130,5 +158,22 @@ public final class GameLink {
             corrections.add(correction);
         }
         return corrections;
+    }
+
+    /**
+     * Takes every joystick sample the game has sent since the last call, oldest first, dropping malformed ones.
+     *
+     * @return New samples; empty when there are none.
+     */
+    public List<JoystickSample> takeJoystickSamples() {
+        List<JoystickSample> samples = new ArrayList<>();
+        double[][] queued = joystickSubscriber.readQueueValues();
+        for (double[] values : queued) {
+            JoystickSample sample = JoystickSample.parse(values);
+            if (sample != null) {
+                samples.add(sample);
+            }
+        }
+        return samples;
     }
 }

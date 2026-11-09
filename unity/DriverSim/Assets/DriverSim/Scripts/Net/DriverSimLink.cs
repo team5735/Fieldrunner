@@ -34,14 +34,20 @@ namespace DriverSim.Net
         private Nt4Client client; // NT4 connection; created in Awake
         private int commandPublisher; // /DriverSim/game/command publisher id
         private int correctionPublisher; // /DriverSim/game/poseCorrection publisher id
+        private int joystickPublisher; // /DriverSim/game/joystick0 publisher id
         private long nextCommandSeq; // sequence number for the next command
         private double localMinusRobotS; // smoothed (local clock - robot clock), seconds
         private bool hasOffset; // localMinusRobotS has been initialized
         private RobotState robotState; // interpolated state for this frame
         private MatchState matchState; // newest match state
-        private string bridgeInfo = ""; // bridge protocol string
+        private bool hasMatchState; // a match state has arrived on the current run
+        private string bridgeInfo = ""; // bridge info text, e.g. "version=3 input=game"
+        private BridgeInfo parsedBridgeInfo; // bridgeInfo decoded; default until it arrives
+        private bool hasBridgeInfo; // bridgeInfo has arrived and parsed
+        private RumbleState rumble = RumbleState.None; // newest rumble request from the robot code
         private float lastSampleTimeS = -1000; // Time.unscaledTime of the newest robot sample, seconds
         private bool isProtocolMismatch; // bridge speaks a different protocol version
+        private int robotStateVersion = Protocol.Version; // protocol version carried by the newest robot state
         private bool hasSaidHello; // hello was sent on the current connection
         private int correctionCount; // pose corrections sent so far
         private double lastCorrectionTimestampS = double.NegativeInfinity; // robot clock of the last correction sent
@@ -81,10 +87,52 @@ namespace DriverSim.Net
             return matchState;
         }
 
-        /// <summary>Bridge protocol string; empty until received.</summary>
+        /// <summary>Whether a match state has arrived from the bridge.</summary>
+        public bool HasMatchState()
+        {
+            return hasMatchState;
+        }
+
+        /// <summary>Bridge info text, e.g. "version=3 input=game"; empty until received.</summary>
         public string GetBridgeInfo()
         {
             return bridgeInfo;
+        }
+
+        /// <summary>Whether the bridge has announced itself and speaks this game's protocol version.</summary>
+        public bool IsBridgeReady()
+        {
+            if (!IsConnected() || !hasBridgeInfo)
+            {
+                return false;
+            }
+            return !isProtocolMismatch;
+        }
+
+        /// <summary>Whether the game supplies the controller values (the bridge's input owner is "game").</summary>
+        public bool IsGameInput()
+        {
+            if (!hasBridgeInfo)
+            {
+                return false;
+            }
+            return parsedBridgeInfo.IsGameInput();
+        }
+
+        /// <summary>The bridge's input owner: "game", "gui" or "selftest"; empty until the info arrives.</summary>
+        public string GetInputOwner()
+        {
+            if (!hasBridgeInfo)
+            {
+                return "";
+            }
+            return parsedBridgeInfo.InputOwner;
+        }
+
+        /// <summary>The robot code's newest controller rumble request.</summary>
+        public RumbleState GetRumble()
+        {
+            return rumble;
         }
 
         /// <summary>NetworkTables server host the game connects to.</summary>
@@ -112,6 +160,18 @@ namespace DriverSim.Net
             string wire = nextCommandSeq + " " + verbAndArgs;
             nextCommandSeq++;
             client.SendString(commandPublisher, wire);
+        }
+
+        /// <summary>Sends the virtual controller reading to the bridge. Dropped while disconnected.</summary>
+        /// <param name="state">Controller reading in WPILib Xbox conventions.</param>
+        public void SendJoystick(JoystickState state)
+        {
+            if (client == null)
+            {
+                return;
+            }
+            double[] wire = state.ConvertToWire();
+            client.SendDoubleArray(joystickPublisher, wire);
         }
 
         /// <summary>
@@ -159,6 +219,7 @@ namespace DriverSim.Net
             client.SubscribePrefix(Protocol.Prefix, SubscribePeriodS);
             commandPublisher = client.Publish(Protocol.CommandTopic, "string");
             correctionPublisher = client.Publish(Protocol.PoseCorrectionTopic, "double[]");
+            joystickPublisher = client.Publish(Protocol.JoystickTopic, "double[]");
             client.Start();
 
             // without a window nothing limits the frame rate
@@ -206,7 +267,8 @@ namespace DriverSim.Net
 
         // ---- private stateful helpers
 
-        /// <summary>Sends hello once per connection, as soon as it is up (publications are announced by then).</summary>
+        /// <summary>Sends hello once per connection, as soon as it is up (publications are announced by
+        /// then).</summary>
         private void UpdateHello()
         {
             if (!client.IsConnected())
@@ -229,8 +291,8 @@ namespace DriverSim.Net
                 double[] values = ConvertToDoubles(update.Value);
                 if (RobotState.TryParse(values, out RobotState state))
                 {
-                    int version = (int)values[RobotStateLayout.ProtocolVersion];
-                    isProtocolMismatch = version != Protocol.Version;
+                    robotStateVersion = (int)values[RobotStateLayout.ProtocolVersion];
+                    UpdateProtocolMismatch();
                     AddSample(state);
                 }
             }
@@ -240,6 +302,7 @@ namespace DriverSim.Net
                 if (MatchState.TryParse(values, out MatchState state))
                 {
                     matchState = state;
+                    hasMatchState = true;
                 }
             }
             else if (update.Topic == Protocol.BridgeInfoTopic)
@@ -248,8 +311,30 @@ namespace DriverSim.Net
                 if (info != null)
                 {
                     bridgeInfo = info;
+                    hasBridgeInfo = BridgeInfo.TryParse(info, out parsedBridgeInfo);
+                    UpdateProtocolMismatch();
                 }
             }
+            else if (update.Topic == Protocol.RumbleTopic)
+            {
+                double[] values = ConvertToDoubles(update.Value);
+                if (values != null && values.Length >= 2)
+                {
+                    rumble = new RumbleState((float)values[0], (float)values[1]);
+                }
+            }
+        }
+
+        /// <summary>Flags a mismatch when the bridge's info or its robot state carries another protocol
+        /// version.</summary>
+        private void UpdateProtocolMismatch()
+        {
+            bool isMismatch = robotStateVersion != Protocol.Version;
+            if (hasBridgeInfo && parsedBridgeInfo.Version != Protocol.Version)
+            {
+                isMismatch = true;
+            }
+            isProtocolMismatch = isMismatch;
         }
 
         /// <summary>Adds a robot-state sample to the history and updates the clock offset estimate.</summary>
@@ -285,7 +370,8 @@ namespace DriverSim.Net
             }
         }
 
-        /// <summary>Robot state to draw at a local time: interpolated from history, never past the newest sample.</summary>
+        /// <summary>Robot state to draw at a local time: interpolated from history, never past the newest
+        /// sample.</summary>
         private RobotState ComputeRenderState(double localNowS)
         {
             if (samples.Count == 0)

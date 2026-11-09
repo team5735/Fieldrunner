@@ -1,0 +1,363 @@
+/* Driver-Sim menus: dark translucent panels over the live field view; sizes are for a 1920x1080 reference. */
+
+.root {
+    position: absolute;
+    left: 0;
+    top: 0;
+    right: 0;
+    bottom: 0;
+}
+
+.screen {
+    position: absolute;
+    left: 0;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    background-color: rgba(6, 8, 12, 0.55);
+}
+
+.panel {
+    align-items: center;
+    padding: 36px 64px 40px 64px;
+    background-color: rgba(16, 20, 28, 0.94);
+    border-radius: 20px;
+    border-width: 2px;
+    border-color: rgba(255, 255, 255, 0.14);
+}
+
+.panel.wide {
+    width: 1800px;
+    padding: 24px 40px 28px 40px;
+}
+
+.title {
+    font-size: 88px;
+    -unity-font-style: bold;
+    color: rgb(255, 255, 255);
+    margin-bottom: 4px;
+}
+
+.subtitle {
+    font-size: 28px;
+    color: rgb(255, 200, 40);
+    margin-bottom: 28px;
+}
+
+.heading {
+    font-size: 56px;
+    -unity-font-style: bold;
+    color: rgb(255, 255, 255);
+    margin-bottom: 20px;
+}
+
+.message {
+    font-size: 36px;
+    color: rgb(230, 230, 235);
+    white-space: normal;
+    max-width: 900px;
+    -unity-text-align: middle-center;
+}
+
+.status {
+    font-size: 26px;
+    color: rgb(190, 196, 208);
+    margin-top: 6px;
+}
+
+.notice {
+    font-size: 26px;
+    color: rgb(255, 200, 40);
+    margin-top: 6px;
+    white-space: normal;
+    -unity-text-align: middle-center;
+}
+
+.row {
+    flex-direction: row;
+    justify-content: center;
+}
+
+.menu-button {
+    min-width: 560px;
+    height: 78px;
+    margin: 8px;
+    padding: 0 28px;
+    font-size: 40px;
+    color: rgb(240, 242, 246);
+    background-color: rgba(255, 255, 255, 0.09);
+    border-width: 2px;
+    border-color: rgba(255, 255, 255, 0.0);
+    border-radius: 12px;
+    -unity-text-align: middle-center;
+}
+
+.menu-button:hover {
+    background-color: rgba(255, 255, 255, 0.2);
+}
+
+.menu-button:focus {
+    background-color: rgb(255, 200, 40);
+    color: rgb(16, 18, 24);
+    border-color: rgb(255, 255, 255);
+}
+
+.menu-button:disabled {
+    opacity: 0.35;
+}
+
+.menu-button.station {
+    min-width: 260px;
+}
+
+.menu-button.blue {
+    background-color: rgba(40, 110, 255, 0.45);
+}
+
+.menu-button.red {
+    background-color: rgba(255, 60, 60, 0.45);
+}
+
+.menu-button.blue:focus,
+.menu-button.red:focus {
+    background-color: rgb(255, 200, 40);
+}
+
+.menu-button.small {
+    min-width: 300px;
+    height: 64px;
+    font-size: 32px;
+}
+
+.option {
+    width: 900px;
+    margin: 6px 0;
+    font-size: 30px;
+    color: rgb(240, 242, 246);
+}
+
+.option > .unity-base-field__label,
+.option .unity-label {
+    min-width: 330px;
+    font-size: 30px;
+    color: rgb(240, 242, 246);
+}
+
+.option:focus .unity-base-field__label,
+.option:focus .unity-label {
+    color: rgb(255, 200, 40);
+}
+
+.option .unity-base-popup-field__input,
+.option .unity-base-text-field__input {
+    background-color: rgba(255, 255, 255, 0.12);
+    color: rgb(240, 242, 246);
+    border-width: 2px;
+    border-color: rgba(255, 255, 255, 0.25);
+    border-radius: 6px;
+    font-size: 26px;
+    -unity-text-align: middle-left;
+}
+
+.option .unity-base-popup-field__text,
+.option .unity-text-element {
+    color: rgb(240, 242, 246);
+}
+
+.option .unity-toggle__checkmark {
+    width: 30px;
+    height: 30px;
+    background-color: rgba(255, 255, 255, 0.12);
+    border-width: 2px;
+    border-color: rgba(255, 255, 255, 0.35);
+    border-radius: 6px;
+}
+
+.option .unity-base-slider__input {
+    margin-right: 8px;
+}
+
+.option .unity-integer-field {
+    min-width: 90px;
+}
+
+.option .unity-base-slider__dragger {
+    background-color: rgb(255, 200, 40);
+    border-color: rgb(255, 200, 40);
+}
+
+.option.invert {
+    width: auto;
+    font-size: 22px;
+    margin-top: 10px;
+}
+
+.option.invert .unity-label {
+    min-width: 0;
+    font-size: 22px;
+}
+
+.controls-body {
+    flex-direction: row;
+    width: 100%;
+}
+
+.diagram {
+    width: 1000px;
+    height: 600px;
+}
+
+.table-column {
+    flex-grow: 1;
+    margin-left: 24px;
+}
+
+.table-header {
+    flex-direction: row;
+    height: 36px;
+}
+
+.table {
+    flex-direction: column;
+}
+
+.table-row {
+    flex-direction: row;
+    height: 40px;
+    align-items: center;
+}
+
+.cell {
+    font-size: 24px;
+    color: rgb(190, 196, 208);
+    -unity-font-style: bold;
+}
+
+.cell-action {
+    width: 300px;
+    font-size: 22px;
+}
+
+.cell-input {
+    width: 184px;
+}
+
+.cell-reset {
+    width: 0;
+}
+
+.table-row .cell {
+    -unity-font-style: normal;
+    color: rgb(240, 242, 246);
+}
+
+.table-row .cell-action {
+    font-size: 19px;
+}
+
+.bind-button {
+    width: 140px;
+    height: 34px;
+    margin: 0 5px 0 0;
+    padding: 0 4px;
+    font-size: 22px;
+    color: rgb(240, 242, 246);
+    background-color: rgba(255, 255, 255, 0.1);
+    border-width: 2px;
+    border-color: rgba(255, 255, 255, 0.0);
+    border-radius: 6px;
+    -unity-text-align: middle-center;
+}
+
+.bind-button:hover {
+    background-color: rgba(255, 255, 255, 0.22);
+}
+
+.bind-button:focus {
+    background-color: rgb(255, 200, 40);
+    color: rgb(16, 18, 24);
+}
+
+.reset-button {
+    width: 34px;
+    height: 34px;
+    margin: 0;
+    padding: 0;
+    font-size: 20px;
+}
+
+.prompt {
+    font-size: 34px;
+    -unity-font-style: bold;
+    color: rgb(255, 200, 40);
+    margin-top: 8px;
+    height: 44px;
+}
+
+.toast {
+    position: absolute;
+    bottom: 64px;
+    left: 0;
+    right: 0;
+    align-self: center;
+    -unity-text-align: middle-center;
+    font-size: 32px;
+    color: rgb(255, 255, 255);
+    display: none;
+}
+
+.toast.visible {
+    display: flex;
+}
+
+/* controller schematic */
+
+.pad-body {
+    position: absolute;
+    background-color: rgb(52, 58, 72);
+    border-radius: 120px;
+    border-width: 3px;
+    border-color: rgb(110, 120, 140);
+}
+
+.pad-part {
+    position: absolute;
+    background-color: rgb(30, 34, 44);
+    border-width: 2px;
+    border-color: rgb(140, 150, 170);
+}
+
+.pad-round {
+    border-radius: 100px;
+}
+
+.pad-key {
+    font-size: 22px;
+    -unity-font-style: bold;
+    -unity-text-align: middle-center;
+    color: rgb(255, 255, 255);
+}
+
+.pad-line {
+    position: absolute;
+    height: 2px;
+    background-color: rgba(255, 200, 40, 0.65);
+    transform-origin: left center;
+}
+
+.callout {
+    position: absolute;
+    width: 300px;
+    font-size: 22px;
+    white-space: normal;
+    color: rgb(240, 242, 246);
+}
+
+.callout-name {
+    font-size: 22px;
+    -unity-font-style: bold;
+    color: rgb(255, 200, 40);
+}

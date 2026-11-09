@@ -196,7 +196,8 @@ namespace DriverSim.Net
             bool isBlueHubActive,
             bool isRedHubActive,
             int station,
-            int autoWinner)
+            int autoWinner,
+            bool isPaused)
         {
             Phase = phase;
             MatchTimeS = matchTimeS;
@@ -204,6 +205,7 @@ namespace DriverSim.Net
             IsRedHubActive = isRedHubActive;
             Station = station;
             AutoWinner = autoWinner;
+            IsPaused = isPaused;
         }
 
         /// <summary>Match phase.</summary>
@@ -223,6 +225,9 @@ namespace DriverSim.Net
 
         /// <summary>Autonomous winner: 0 unknown, 1 blue, 2 red.</summary>
         public int AutoWinner { get; }
+
+        /// <summary>Whether the session is paused: the match clock is held and the robot is disabled.</summary>
+        public bool IsPaused { get; }
 
         /// <summary>Whether the driver station is on the red alliance.</summary>
         public bool IsRed()
@@ -248,8 +253,10 @@ namespace DriverSim.Net
             bool isRedHubActive = values[MatchStateLayout.IsRedHubActive] > 0.5;
             int station = (int)values[MatchStateLayout.Station];
             int autoWinner = (int)values[MatchStateLayout.AutoWinner];
+            bool isPaused = values[MatchStateLayout.IsPaused] > 0.5;
             state = new MatchState(
-                phase, values[MatchStateLayout.MatchTimeS], isBlueHubActive, isRedHubActive, station, autoWinner);
+                phase, values[MatchStateLayout.MatchTimeS], isBlueHubActive, isRedHubActive, station, autoWinner,
+                isPaused);
             return true;
         }
     }

@@ -8,7 +8,8 @@ namespace DriverSim.Game
     /// <summary>
     /// Puts the camera where a driver stands: behind the selected driver station, at eye height, looking toward the
     /// center of the field (so side stations angle inward). The station comes from the robot sim's driver station
-    /// (set it from the sim GUI or the game's 1-6 keys). An overhead view is available for debugging. Command line:
+    /// (chosen in the game's station picker, or in the sim GUI). An overhead view is available for debugging.
+    /// Command line:
     /// <c>--view overhead</c> starts in the overhead view; <c>--no-post</c> turns post-processing off.
     /// </summary>
     public sealed class DriverStationCamera : MonoBehaviour
@@ -72,6 +73,26 @@ namespace DriverSim.Game
             {
                 view = View.DriverStation;
             }
+        }
+
+        /// <summary>Switches to a view.</summary>
+        /// <param name="newView">View to show.</param>
+        public void SetView(View newView)
+        {
+            view = newView;
+        }
+
+        /// <summary>The driver's vertical field of view, degrees.</summary>
+        public float GetFieldOfViewDeg()
+        {
+            return fieldOfViewDeg;
+        }
+
+        /// <summary>Sets the driver's vertical field of view, within limits.</summary>
+        /// <param name="requestedDeg">Vertical field of view, degrees.</param>
+        public void SetFieldOfViewDeg(float requestedDeg)
+        {
+            fieldOfViewDeg = Mathf.Clamp(requestedDeg, MinFieldOfViewDeg, MaxFieldOfViewDeg);
         }
 
         /// <summary>Widens or narrows the driver's field of view, within limits.</summary>
@@ -162,7 +183,9 @@ namespace DriverSim.Game
             cam.fieldOfView = fieldOfViewDeg;
         }
 
-        /// <summary>Puts the camera high above the field center, the selected alliance at the bottom of the screen.</summary>
+        /// <summary>
+        /// Puts the camera high above the field center, the selected alliance at the bottom of the screen.
+        /// </summary>
         /// <param name="station">Station index, 0..5.</param>
         private void PlaceOverhead(int station)
         {

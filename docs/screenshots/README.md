@@ -20,3 +20,9 @@ phase and what changed. Scratch captures live in `_raw/` (git-ignored, ephemeral
 | 13 | Robot on the blue right bump (`resetPose 4.25 2.4 0`, Blue 1 view): raised and nosed up while the front wheels climb the near slope; the F1 panel's bump line reads rise 0.076 m, nose up 13.8 deg. |
 | 14 | Robot under the blue right trench bar with the hood down (8 deg): passes through, collision state clear. |
 | 15 | First render on the NVIDIA GPU (RTX 4090, OpenGL Core) after the container got the NVIDIA graphics libraries; same scene as before, Blue 2 in auto. |
+| 16 | Phase 3b title screen: Start Match, Free Practice, Controls, Options, Quit over the live field view; robot sim connected, keyboard active. |
+| 17 | Station picker (Start Match / Free Practice): Blue 1-3 / Red 1-3, last choice preselected. |
+| 18 | Controls screen: schematic gamepad with each input labelled by its robot action, and the rebinding table (controller and keyboard inputs, per-binding reset, invert drive stick Y). |
+| 19 | Options screen: camera view, field of view, details panel, colliders, fullscreen, resolution, graphics quality. |
+| 20 | Pause menu during free practice (Restart Match appears only in a match). |
+| 21 | In-game HUD with the "Controller connected" toast and the new hotkey line (`--screenshot-menu toast`). |

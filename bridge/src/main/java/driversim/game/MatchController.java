@@ -5,9 +5,11 @@ package driversim.game;
  * teleop, with the hub-shift schedule driven by which alliance won autonomous.
  *
  * <p>
- * Outside a match the controller is in {@link Phase#FREE_PLAY} and leaves the driver station alone, so drivers can
- * enable from the sim GUI as they like. It is pure timing logic: callers pass the current time in, read
- * {@link #getStatus} and apply it to the simulated driver station.
+ * Outside a match the controller is in {@link Phase#FREE_PLAY}, where the robot is enabled only while free practice
+ * is on and the session is not paused (the bridge applies that to the driver station only when the game owns input).
+ * A pause freezes the match clock and disables the robot; resuming continues with the same time left. It is pure
+ * timing logic: callers pass the current time in, read {@link #getStatus} and apply it to the simulated driver
+ * station.
  */
 public final class MatchController {
     public static final double AUTO_S = 20;           // seconds of autonomous
@@ -24,10 +26,13 @@ public final class MatchController {
     /** Where the match is. */
     public enum Phase { FREE_PLAY, AUTO, AUTO_TO_TELEOP, TELEOP, POST_MATCH }
 
-    private final double slackS;  // seconds: half the update period, so a boundary never waits an extra update
-    private Phase phase;          // current phase
-    private double phaseStartS;   // time the current phase began, seconds
-    private char autoWinner;      // 'R', 'B', or ' ' when not yet decided
+    private final double slackS;   // seconds: half the update period, so a boundary never waits an extra update
+    private Phase phase;           // current phase
+    private double phaseStartS;    // time the current phase began, seconds
+    private char autoWinner;       // 'R', 'B', or ' ' when not yet decided
+    private boolean isPaused;      // whether the match clock is held and the robot disabled
+    private double pausedAtS;      // time the current pause began, seconds
+    private boolean isPracticeOn;  // free play only: whether the robot is enabled in teleop
 
     /**
      * Creates a controller in free play.
@@ -39,6 +44,9 @@ public final class MatchController {
         this.phase = Phase.FREE_PLAY;
         this.phaseStartS = 0;
         this.autoWinner = ' ';
+        this.isPaused = false;
+        this.pausedAtS = 0;
+        this.isPracticeOn = false;
     }
 
     /**
@@ -53,16 +61,68 @@ public final class MatchController {
         phase = Phase.AUTO;
         phaseStartS = nowS;
         autoWinner = ' ';
+        isPaused = false;
     }
 
     /**
-     * Ends any match immediately and returns to free play.
+     * Ends any match immediately and returns to free play with the robot disabled and no pause.
      *
      * @param nowS Current time, seconds.
      */
     public void abort(double nowS) {
         phase = Phase.FREE_PLAY;
         phaseStartS = nowS;
+        isPaused = false;
+        isPracticeOn = false;
+    }
+
+    /**
+     * Holds the session: in a match the clock stops and the robot is disabled; in free practice the robot is
+     * disabled. Ignored when already paused, and in free play while free practice is off (nothing is running).
+     *
+     * @param nowS Current time, seconds.
+     */
+    public void pause(double nowS) {
+        if (isPaused) {
+            return;
+        }
+        if (phase == Phase.FREE_PLAY && !isPracticeOn) {
+            return;
+        }
+
+        // apply any phase change that is already due, so the frozen time belongs to the right phase
+        update(nowS);
+        isPaused = true;
+        pausedAtS = nowS;
+    }
+
+    /**
+     * Continues a paused session: in a match the clock restarts from the frozen time in the phase it was paused in;
+     * in free practice the robot is enabled. Outside a pause it only turns free practice on in free play.
+     *
+     * @param nowS Current time, seconds.
+     */
+    public void resume(double nowS) {
+        if (isPaused) {
+            phaseStartS = phaseStartS + (nowS - pausedAtS);
+            isPaused = false;
+        }
+        if (phase == Phase.FREE_PLAY) {
+            isPracticeOn = true;
+        }
+    }
+
+    /**
+     * Turns free practice on or off. Ignored during a match; also clears a free-practice pause.
+     *
+     * @param isOn True to enable the robot in teleop, false to disable it.
+     */
+    public void setPracticeEnabled(boolean isOn) {
+        if (phase != Phase.FREE_PLAY) {
+            return;
+        }
+        isPracticeOn = isOn;
+        isPaused = false;
     }
 
     /**
@@ -84,6 +144,9 @@ public final class MatchController {
      * @param nowS Current time, seconds.
      */
     public void update(double nowS) {
+        if (isPaused) {
+            return;
+        }
         double elapsedS = nowS - phaseStartS;
         if (phase == Phase.AUTO && elapsedS >= AUTO_S - slackS) {
             phase = Phase.AUTO_TO_TELEOP;
@@ -104,10 +167,16 @@ public final class MatchController {
      * Reports what the driver station should show right now.
      *
      * @param nowS Current time, seconds.
-     * @return Match status; {@link MatchStatus#isFieldControlled()} is false in free play.
+     * @return Match status; {@link MatchStatus#isFieldControlled()} is false in free play. While paused the time is
+     *         the value at the pause and the robot is not enabled.
      */
     public MatchStatus getStatus(double nowS) {
-        double elapsedS = nowS - phaseStartS;
+        // a paused clock reads the instant it was paused
+        double clockS = nowS;
+        if (isPaused) {
+            clockS = pausedAtS;
+        }
+        double elapsedS = clockS - phaseStartS;
         String gameMessage = "";
         if (phase == Phase.TELEOP || phase == Phase.POST_MATCH) {
             gameMessage = String.valueOf(autoWinner);
@@ -126,12 +195,19 @@ public final class MatchController {
         }
 
         boolean isEnabled = phase == Phase.AUTO || phase == Phase.TELEOP;
+        if (phase == Phase.FREE_PLAY) {
+            isEnabled = isPracticeOn;
+        }
+        if (isPaused) {
+            isEnabled = false;
+        }
         boolean isAutonomous = phase == Phase.AUTO;
         boolean isFieldControlled = phase != Phase.FREE_PLAY;
         boolean isBlueHubActive = computeHubActive(phase, matchTimeS, autoWinner, 'B');
         boolean isRedHubActive = computeHubActive(phase, matchTimeS, autoWinner, 'R');
         return new MatchStatus(
-            phase, isFieldControlled, isEnabled, isAutonomous, matchTimeS, gameMessage, isBlueHubActive, isRedHubActive
+            phase, isFieldControlled, isEnabled, isAutonomous, matchTimeS, gameMessage, isBlueHubActive, isRedHubActive,
+            isPaused
         );
     }
 

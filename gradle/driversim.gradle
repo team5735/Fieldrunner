@@ -5,7 +5,9 @@
 //       apply from: '../Fieldrunner/gradle/driversim.gradle' }
 //
 // Tasks (all in the "driver sim" group):
-//   simulateDriverSim  - robot code + bridge in the normal WPILib sim (sim GUI on), and launches the Unity game.
+//   simulateDriverSim  - robot code + bridge in WPILib sim, and launches the Unity game, which is the only window: the
+//                        bridge is the driver station and the game supplies the controller. Add -PdriverSimGui to also
+//                        open the WPILib sim GUI, which then supplies joysticks and enable (the game's are ignored).
 //   selfTestDriverSim  - headless scripted check of the bridge against the real robot code; fails the build on error.
 //   selfTestDriverSimWithGame - the same plus the built Unity game, checking that its collisions reach the robot code.
 //   testDriverSim      - unit tests for the bridge's pure logic.
@@ -53,8 +55,11 @@ def isDriverSimRun = requestedTasks.contains('simulateDriverSim')
 def isDriverSimSelfTestWithGame = requestedTasks.contains('selfTestDriverSimWithGame')
 def isDriverSimSelfTest = requestedTasks.contains('selfTestDriverSim') || isDriverSimSelfTestWithGame
 
-if (isDriverSimSelfTest) {
-    // headless: the sim GUI would overwrite the self-test's simulated joystick values
+def isDriverSimGui = project.hasProperty('driverSimGui')
+
+if (isDriverSimSelfTest || (isDriverSimRun && !isDriverSimGui)) {
+    // no sim GUI: the self-test's simulated joystick values must not be overwritten, and in a normal run the bridge is
+    // the driver station and the game is the only window
     wpi.sim.halExtensions.configureEach { ext ->
         if (ext.name.toLowerCase().contains('gui')) {
             ext.defaultEnabled.set(false)
@@ -67,6 +72,15 @@ if (isDriverSimRun || isDriverSimSelfTest) {
         dependsOn tasks.named('driverSimClasses')
         classpath(sourceSets.driverSim.runtimeClasspath)
         mainClass = 'driversim.DriverSimMain'
+
+        // who supplies joystick input and free-play enable: see driversim.InputOwner
+        if (isDriverSimSelfTest) {
+            environment 'DRIVERSIM_INPUT', 'selftest'
+        } else if (isDriverSimGui) {
+            environment 'DRIVERSIM_INPUT', 'gui'
+        } else {
+            environment 'DRIVERSIM_INPUT', 'game'
+        }
 
         if (isDriverSimSelfTest) {
             environment 'DRIVERSIM_SELFTEST', '1'
@@ -88,7 +102,7 @@ if (isDriverSimRun || isDriverSimSelfTest) {
                     def command = [game.absolutePath, '--stop-sim-on-exit']
                     if (isDriverSimSelfTestWithGame) {
                         // the self-test ends the sim; no window is needed to check the collisions
-                        command.addAll(['-batchmode', '-nographics'])
+                        command.addAll(['-batchmode', '-nographics', '--start-in', 'practice'])
                     }
                     def extraArgs = System.getenv('DRIVERSIM_GAME_ARGS')
                     if (extraArgs != null && !extraArgs.trim().isEmpty()) {

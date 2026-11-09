@@ -7,6 +7,10 @@ using DriverSim.Util;
 using UnityEditor;
 using UnityEditor.SceneManagement;
 using UnityEngine;
+using UnityEngine.EventSystems;
+using UnityEngine.InputSystem;
+using UnityEngine.InputSystem.UI;
+using UnityEngine.UIElements;
 using UnityEngine.Rendering;
 using UnityEngine.Rendering.Universal;
 
@@ -24,9 +28,12 @@ namespace DriverSim.Editor
         private const string FieldModelPath = "Assets/ThirdParty/AdvantageScope/Field2026/Field2026.glb";
         private const string RobotMaterialPath = "Assets/DriverSim/Materials/RobotBase.mat";
         private const string BumpPartNumber = "GE-26100"; // field model nodes of the four bumps start with this
+        private const string MenuLayoutPath = "Assets/DriverSim/UI/DriverSim.uxml"; // menu screens
+        private const string PanelSettingsPath = "Assets/DriverSim/UI/PanelSettings.asset"; // menu scaling
         private const string SampleScenePath = "Assets/Scenes/SampleScene.unity";
 
-        /// <summary>Builds and saves the scene, registers it as the only build scene, and sets player settings.</summary>
+        /// <summary>Builds and saves the scene, registers it as the only build scene, and sets player
+        /// settings.</summary>
         [MenuItem("Driver-Sim/Rebuild Scene")]
         public static void BuildScene()
         {
@@ -100,9 +107,22 @@ namespace DriverSim.Editor
             Material solidDebugMaterial = LoadOrCreateDebugMaterial("ColliderSolid", new Color(0f, 0.9f, 1f, 0.6f));
             Material lowDebugMaterial = LoadOrCreateDebugMaterial("ColliderLowCeiling", new Color(1f, 0.9f, 0f, 0.6f));
             colliderView.SetReferences(solidDebugMaterial, lowDebugMaterial);
-            GameControls controls = root.AddComponent<GameControls>();
-            controls.SetReferences(link, driverCamera, hud, colliderView);
             root.AddComponent<AutoScreenshot>();
+
+            // input, menus and game flow
+            ControllerInput controllerInput = root.AddComponent<ControllerInput>();
+            InputActionAsset controlsAsset = DriverControlsBuilder.BuildAsset();
+            controllerInput.SetActionsAsset(controlsAsset);
+            GameOptions gameOptions = root.AddComponent<GameOptions>();
+            gameOptions.SetReferences(driverCamera, hud, colliderView);
+            MenuView menuView = BuildMenuUi(controllerInput, gameOptions);
+            GameFlow flow = root.AddComponent<GameFlow>();
+            flow.SetReferences(link, controllerInput, menuView, hud);
+            JoystickSender joystickSender = root.AddComponent<JoystickSender>();
+            joystickSender.SetReferences(link, controllerInput, flow);
+            GameControls controls = root.AddComponent<GameControls>();
+            controls.SetReferences(flow, controllerInput, gameOptions);
+            BuildEventSystem();
 
             // save and register
             UnityEngine.SceneManagement.Scene scene = EditorSceneManager.GetActiveScene();
@@ -114,6 +134,66 @@ namespace DriverSim.Editor
             }
             AssetDatabase.SaveAssets();
             Debug.Log("[Driver-Sim] scene built: " + ScenePath);
+        }
+
+        /// <summary>
+        /// Creates the UI object: its UIDocument (menu layout and panel settings) and the <see cref="MenuView"/>.
+        /// </summary>
+        /// <param name="controllerInput">Controller input, for the Controls screen.</param>
+        /// <param name="gameOptions">Settings, for the Options screen.</param>
+        private static MenuView BuildMenuUi(ControllerInput controllerInput, GameOptions gameOptions)
+        {
+            VisualTreeAsset layout = AssetDatabase.LoadAssetAtPath<VisualTreeAsset>(MenuLayoutPath);
+            if (layout == null)
+            {
+                throw new System.InvalidOperationException("menu layout not imported: " + MenuLayoutPath);
+            }
+            PanelSettings panelSettings = LoadOrCreatePanelSettings();
+            GameObject uiObject = new GameObject("MenuUi");
+            UIDocument document = uiObject.AddComponent<UIDocument>();
+            document.panelSettings = panelSettings;
+            document.visualTreeAsset = layout;
+            MenuView menuView = uiObject.AddComponent<MenuView>();
+            menuView.SetReferences(document, controllerInput, gameOptions);
+            return menuView;
+        }
+
+        /// <summary>
+        /// Loads the menu's panel settings (scale with screen size from a 1920x1080 reference), creating them on first
+        /// use.
+        /// </summary>
+        private static PanelSettings LoadOrCreatePanelSettings()
+        {
+            PanelSettings settings = AssetDatabase.LoadAssetAtPath<PanelSettings>(PanelSettingsPath);
+            if (settings == null)
+            {
+                settings = ScriptableObject.CreateInstance<PanelSettings>();
+                AssetDatabase.CreateAsset(settings, PanelSettingsPath);
+            }
+            settings.scaleMode = PanelScaleMode.ScaleWithScreenSize;
+            settings.referenceResolution = new Vector2Int(1920, 1080);
+            settings.screenMatchMode = PanelScreenMatchMode.MatchWidthOrHeight;
+            settings.match = 0.5f;
+            settings.sortingOrder = 100;
+            string[] themeGuids = AssetDatabase.FindAssets("t:ThemeStyleSheet");
+            if (settings.themeStyleSheet == null && themeGuids.Length > 0)
+            {
+                string themePath = AssetDatabase.GUIDToAssetPath(themeGuids[0]);
+                settings.themeStyleSheet = AssetDatabase.LoadAssetAtPath<ThemeStyleSheet>(themePath);
+            }
+            EditorUtility.SetDirty(settings);
+            return settings;
+        }
+
+        /// <summary>
+        /// Adds the event system with the Input System UI module, so menus take mouse, keyboard and controller.
+        /// </summary>
+        private static void BuildEventSystem()
+        {
+            GameObject eventSystemObject = new GameObject("EventSystem");
+            eventSystemObject.AddComponent<EventSystem>();
+            InputSystemUIInputModule module = eventSystemObject.AddComponent<InputSystemUIInputModule>();
+            module.AssignDefaultActions();
         }
 
         /// <summary>

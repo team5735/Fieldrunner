@@ -1,3 +1,4 @@
+using System.Globalization;
 using UnityEngine;
 
 namespace DriverSim.Field
@@ -68,6 +69,7 @@ namespace DriverSim.Field
     public static class DriverStations
     {
         public const int DefaultStation = 1; // Blue 2, used when the driver station has not chosen one
+        private const float StartLineXM = 3.56f; // meters from the own wall to the robot center behind the start line
 
         // station y positions, field frame meters, by station index
         private static readonly float[] StationYFieldM = { 7.101f, 5.272f, 2.193f, 0.942f, 2.771f, 5.850f };
@@ -132,6 +134,25 @@ namespace DriverSim.Field
                 return Mathf.PI;
             }
             return 0;
+        }
+
+        /// <summary>
+        /// The bridge command that puts the robot behind its alliance's starting line, in line with a station, facing
+        /// downfield.
+        /// </summary>
+        /// <param name="station">Station index.</param>
+        /// <returns>A resetPose command without its sequence number.</returns>
+        public static string MakeStartPoseCommand(int station)
+        {
+            double xFieldM = StartLineXM;
+            if (IsRed(station))
+            {
+                xFieldM = FieldFrame.FieldLengthM - StartLineXM;
+            }
+            double yFieldM = GetYFieldM(station);
+            double headingFieldRad = GetDownfieldHeadingRad(station);
+            return string.Format(CultureInfo.InvariantCulture, "resetPose {0:F3} {1:F3} {2:F4}", xFieldM, yFieldM,
+                headingFieldRad);
         }
 
         /// <summary>A usable station index: the given one, or the default when it is out of range.</summary>

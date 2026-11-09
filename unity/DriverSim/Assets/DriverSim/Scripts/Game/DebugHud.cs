@@ -6,16 +6,17 @@ using UnityEngine;
 namespace DriverSim.Game
 {
     /// <summary>
-    /// Plain overlay: match clock and phase across the top, connection and robot details in a corner panel (F1), and
-    /// a hood warning under the clock while a trench bar blocks the robot, and a one-line key reminder at the bottom. The full game HUD replaces the top bar in a later phase. Layout is in
-    /// points of a 900-point-tall virtual screen, scaled to the window.
+    /// Plain overlay: match clock and phase across the top, connection and robot details in a corner panel (F1), a hood
+    /// warning under the clock while a trench bar blocks the robot, and a one-line key reminder at the bottom. The
+    /// whole overlay hides while a menu screen is open. The full game HUD replaces the top bar in a later phase. Layout
+    /// is in points of a 900-point-tall virtual screen, scaled to the window.
     /// </summary>
     public sealed class DebugHud : MonoBehaviour
     {
         private const float VirtualHeight = 900f; // virtual screen height the layout is drawn in, points
         private const string TrenchWarning = "HOOD UP - LOWER IT FOR THE TRENCH";
         private const string KeyHelp =
-            "Enter start match   Backspace abort   1-6 station   R reset robot   V view   [ ] FOV   F1 details   F2 colliders   F10 quit";
+            "Esc pause   F1 details   F2 colliders   F3 view   F4 F5 FOV   F6 reset robot   F10 quit";
 
         [Tooltip("Link to the bridge.")]
         [SerializeField] private DriverSimLink link;
@@ -29,6 +30,7 @@ namespace DriverSim.Game
         [Tooltip("Drawn robot, for the bump readout.")]
         [SerializeField] private RobotModel robotModel;
 
+        private bool isVisible = true; // overlay shown at all; false while a menu screen is open
         private bool isDetailVisible = true; // corner panel shown
         private GUIStyle clockStyle; // big match clock; made on the first OnGUI (GUI.skin exists only there)
         private GUIStyle panelStyle; // corner panel text
@@ -49,17 +51,31 @@ namespace DriverSim.Game
             collision = robotCollision;
         }
 
-        /// <summary>Shows or hides the detail panel.</summary>
-        public void ToggleDetails()
+        /// <summary>Shows or hides the whole overlay.</summary>
+        /// <param name="shouldShow">True to draw the overlay.</param>
+        public void SetVisible(bool shouldShow)
         {
-            isDetailVisible = !isDetailVisible;
+            isVisible = shouldShow;
+        }
+
+        /// <summary>Whether the detail panel is shown (when the overlay is).</summary>
+        public bool IsDetailVisible()
+        {
+            return isDetailVisible;
+        }
+
+        /// <summary>Shows or hides the detail panel.</summary>
+        /// <param name="shouldShow">True to show the panel.</param>
+        public void SetDetailVisible(bool shouldShow)
+        {
+            isDetailVisible = shouldShow;
         }
 
         // ---- Unity messages
 
         private void OnGUI()
         {
-            if (link == null)
+            if (link == null || !isVisible)
             {
                 return;
             }

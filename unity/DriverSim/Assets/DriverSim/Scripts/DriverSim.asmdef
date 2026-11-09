@@ -2,7 +2,8 @@
     "name": "DriverSim",
     "rootNamespace": "DriverSim",
     "references": [
-        "Unity.InputSystem"
+        "Unity.InputSystem",
+        "UnityEngine.UI"
     ],
     "includePlatforms": [],
     "excludePlatforms": [],

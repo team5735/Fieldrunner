@@ -6,8 +6,8 @@ namespace DriverSim.Game
 {
     /// <summary>
     /// Debug overlay that draws every obstacle collider as a translucent box (cyan for Solid, yellow for LowCeiling) so
-    /// collider placement can be checked against the field model. Toggled with F2, or shown from the start with the
-    /// command-line flag <c>--show-colliders</c>.
+    /// collider placement can be checked against the field model. Toggled with F2 or in Options, or shown from the
+    /// start with the command-line flag <c>--show-colliders</c>.
     /// </summary>
     public sealed class ColliderDebugView : MonoBehaviour
     {
@@ -29,10 +29,18 @@ namespace DriverSim.Game
             lowCeilingMaterial = lowCeiling;
         }
 
-        /// <summary>Shows the boxes when hidden, hides them when shown.</summary>
-        public void Toggle()
+        /// <summary>Shows or hides every box.</summary>
+        /// <param name="shown">True to show.</param>
+        public void SetShown(bool shown)
         {
-            SetShown(!isShown);
+            isShown = shown;
+            foreach (GameObject box in boxes)
+            {
+                if (box != null)
+                {
+                    box.SetActive(shown);
+                }
+            }
         }
 
         /// <summary>Whether the boxes are visible.</summary>
@@ -50,20 +58,6 @@ namespace DriverSim.Game
         }
 
         // ---- private stateful helpers
-
-        /// <summary>Shows or hides every box.</summary>
-        /// <param name="shown">True to show.</param>
-        private void SetShown(bool shown)
-        {
-            isShown = shown;
-            foreach (GameObject box in boxes)
-            {
-                if (box != null)
-                {
-                    box.SetActive(shown);
-                }
-            }
-        }
 
         /// <summary>Creates a drawn box as a child of every obstacle collider's object.</summary>
         private void BuildBoxes()

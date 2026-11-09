@@ -21,20 +21,29 @@ import frc.robot.subsystems.DrivetrainSubsystem;
 
 import driversim.game.GameCommand;
 import driversim.game.GameLink;
+import driversim.game.JoystickLink;
+import driversim.game.JoystickSample;
 import driversim.game.MatchController;
 import driversim.game.MatchStateLayout;
 import driversim.game.MatchStatus;
 import driversim.game.PoseCorrection;
 import driversim.game.PoseCorrector;
 import driversim.game.RobotStateLayout;
+import driversim.game.RumbleTracker;
+import driversim.game.RumbleValues;
 import driversim.mech.MechanismSnapshot;
 import driversim.mech.RobotMechanismSim;
 
 /**
  * Sim-only glue between the unmodified robot code and the Driver-Sim game. Each {@link #update} it advances the
  * mechanism sim, applies commands from the game (match control, robot placement) and the game's pose corrections
- * (collisions), drives the
- * simulated driver station during a match, and publishes robot and match state over NetworkTables.
+ * (collisions), drives the simulated driver station, and publishes robot and match state over NetworkTables.
+ *
+ * <p>
+ * The {@link InputOwner} decides how much of the driver station the bridge owns. With {@link InputOwner#GAME} it is the
+ * driver station: the game's virtual Xbox controller becomes joystick port 0, free practice and pauses control the
+ * enable state, and the robot's rumble goes back to the game. With any other owner it only drives the driver station
+ * during a match and leaves joysticks and free-play enable to the sim GUI or the self-test.
  *
  * <p>
  * Register {@link #update} with {@code TimedRobot.addPeriodic} so it runs on the robot's main loop thread, interleaved
@@ -46,33 +55,54 @@ public final class DriverSimBridge {
         2.0, 4.03, Rotation2d.kZero
     );  // field frame: blue alliance zone, in front of the blue hub, facing downfield
 
+    private static final int JOYSTICK_PORT = 0;        // driver station port of the driver's Xbox controller
+    private static final int XINPUT_GAMEPAD_TYPE = 1;  // HAL joystick type of an XInput gamepad
+    private static final String JOYSTICK_NAME = "Xbox Controller (Driver-Sim)";  // name shown for port 0
+
     private final Robot robot;                     // the robot program; ended through it when the game quits
     private final DrivetrainSubsystem drivetrain;  // the robot's swerve drivetrain (CTRE sim runs its physics)
     private final RobotMechanismSim mechanisms;    // every non-drivetrain mechanism
     private final MatchController match;           // field-system timing
     private final GameLink link;                   // NetworkTables topics to the game
+    private final InputOwner inputOwner;           // who supplies joystick input and free-play enable
+    private final JoystickLink joystickLink;       // timing of the game's joystick samples
+    private final RumbleTracker rumbleTracker;     // which robot rumble changes the game needs to hear about
     private final PoseCorrector poseCorrector;     // reconciles the robot pose with the game's corrected poses
     private double lastUpdateS;                    // robot clock at the previous update, seconds
     private boolean wasFieldControlled;            // whether the previous update had a match driving the DS
     private boolean isGameAttached;                // whether a game has said hello
+    private boolean isSelfTestJoystickOn;          // SELFTEST owner only: whether the game's joystick is applied
 
     /**
      * Attaches the bridge to a constructed robot and places the robot at the default start pose.
      *
-     * @param robot The robot instance the sim is running.
+     * @param robot      The robot instance the sim is running.
+     * @param inputOwner Who supplies joystick input and free-play enable for this run.
      */
-    public DriverSimBridge(Robot robot) {
+    public DriverSimBridge(Robot robot, InputOwner inputOwner) {
         this.robot = robot;
         this.drivetrain = robot.drivetrain;
         this.mechanisms = new RobotMechanismSim(robot.spindex);
         this.match = new MatchController(PERIOD_S);
-        this.link = new GameLink();
+        this.inputOwner = inputOwner;
+        this.link = new GameLink(inputOwner);
+        this.joystickLink = new JoystickLink();
+        this.rumbleTracker = new RumbleTracker();
         this.poseCorrector = new PoseCorrector();
         this.lastUpdateS = Timer.getFPGATimestamp();
         this.wasFieldControlled = false;
         this.isGameAttached = false;
+        this.isSelfTestJoystickOn = false;
 
         drivetrain.resetPose(DEFAULT_START_POSE_FIELD);
+
+        // the game owns the driver station: an Xbox controller on port 0, on the blue 1 station until told otherwise
+        if (inputOwner == InputOwner.GAME) {
+            declareXboxController();
+            DriverStationSim.setAllianceStationId(AllianceStationID.Blue1);
+            DriverStationSim.setDsAttached(true);
+            DriverStationSim.notifyNewData();
+        }
     }
 
     /** Advances the sim by one bridge period; call from the robot's main loop thread. */
@@ -90,6 +120,22 @@ public final class DriverSimBridge {
         List<GameCommand> commands = link.takeCommands();
         for (GameCommand command : commands) {
             applyCommand(command, nowS);
+        }
+
+        // joystick samples from the game
+        List<JoystickSample> samples = link.takeJoystickSamples();
+        boolean isJoystickWanted = isSelfTestJoystickOn;
+        if (inputOwner == InputOwner.GAME) {
+            isJoystickWanted = true;
+        }
+        if (isJoystickWanted) {
+            for (JoystickSample sample : samples) {
+                joystickLink.accept(sample, nowS);
+            }
+        }
+        if (inputOwner == InputOwner.GAME && joystickLink.checkGameGone(nowS)) {
+            System.out.println("[Driver-Sim] game stopped sending input; pausing");
+            match.pause(nowS);
         }
 
         // collision corrections from the game, reconciled against the pose history
@@ -110,7 +156,15 @@ public final class DriverSimBridge {
         // match timing drives the driver station while a match runs
         match.update(nowS);
         MatchStatus status = match.getStatus(nowS);
-        updateDriverStation(status);
+        if (inputOwner == InputOwner.GAME) {
+            updateGameDriverStation(status, nowS);
+            publishRumble();
+        } else {
+            updateDriverStation(status);
+            if (isSelfTestJoystickOn) {
+                applyJoystick(nowS);
+            }
+        }
 
         // publish to the game
         MechanismSnapshot snapshot = mechanisms.getSnapshot();
@@ -156,6 +210,19 @@ public final class DriverSimBridge {
     public MechanismSnapshot getMechanismSnapshot() { return mechanisms.getSnapshot(); }
 
     /**
+     * Turns the application of the game's joystick on or off in a self-test run, so the self-test can check that the
+     * game's controller drives the robot. The self-test owns the driver station otherwise.
+     *
+     * @param isOn True to apply the game's joystick samples to port 0 every update, false to stop.
+     */
+    void setSelfTestJoystickOn(boolean isOn) {
+        isSelfTestJoystickOn = isOn;
+        if (isOn) {
+            declareXboxController();
+        }
+    }
+
+    /**
      * Reports whether a game has connected.
      *
      * @return True once any game has sent {@code hello}.
@@ -171,11 +238,32 @@ public final class DriverSimBridge {
      * @param nowS    Robot clock, seconds.
      */
     private void applyCommand(GameCommand command, double nowS) {
+        // the player's pause and practice commands only mean something when the game owns the driver station
+        GameCommand.Verb verb = command.verb();
+        boolean isPlayerVerb = switch (verb) {
+            case PRACTICE, DISABLE, PAUSE, RESUME -> true;
+            default -> false;
+        };
+        if (isPlayerVerb && inputOwner != InputOwner.GAME) {
+            System.out.println("[Driver-Sim] ignoring '" + verb + "': input owner is " + inputOwner.getWireName());
+            return;
+        }
+
         switch (command.verb()) {
         case START -> match.start(nowS);
         case ABORT -> match.abort(nowS);
         case BALL_LAUNCHED -> mechanisms.applyBallLaunched();
         case HELLO -> isGameAttached = true;
+        case PRACTICE -> match.setPracticeEnabled(true);
+        case DISABLE -> match.setPracticeEnabled(false);
+        case PAUSE -> {
+            System.out.println("[Driver-Sim] paused");
+            match.pause(nowS);
+        }
+        case RESUME -> {
+            System.out.println("[Driver-Sim] resumed");
+            match.resume(nowS);
+        }
         case AUTO_WINNER -> {
             String winnerText = command.text();
             char winner = winnerText.charAt(0);
@@ -225,6 +313,73 @@ public final class DriverSimBridge {
             DriverStationSim.notifyNewData();
         }
         wasFieldControlled = status.isFieldControlled();
+    }
+
+    /**
+     * Writes the whole driver station for the game-owned input: attached, teleop or autonomous and enable from the
+     * match status (free practice and pauses included), match time, game message, and the game's joystick.
+     *
+     * @param status Current match status.
+     * @param nowS   Robot clock, seconds.
+     */
+    private void updateGameDriverStation(MatchStatus status, double nowS) {
+        // mode and enable
+        DriverStationSim.setDsAttached(true);
+        DriverStationSim.setFmsAttached(status.isFieldControlled());
+        DriverStationSim.setTest(false);
+        DriverStationSim.setAutonomous(status.isAutonomous());
+        DriverStationSim.setEnabled(status.isEnabled());
+        DriverStationSim.setMatchTime(status.matchTimeS());
+        DriverStationSim.setGameSpecificMessage(status.gameMessage());
+
+        // the game's controller, neutral when it has gone quiet
+        JoystickSample sample = joystickLink.getSampleToApply(nowS);
+        writeJoystick(sample);
+        DriverStationSim.notifyNewData();
+    }
+
+    /**
+     * Applies the game's joystick to port 0 alone, for a self-test run.
+     *
+     * @param nowS Robot clock, seconds.
+     */
+    private void applyJoystick(double nowS) {
+        JoystickSample sample = joystickLink.getSampleToApply(nowS);
+        writeJoystick(sample);
+        DriverStationSim.notifyNewData();
+    }
+
+    /** Declares an Xbox controller (6 axes, 10 buttons, 1 D-pad) on port 0 of the simulated driver station. */
+    private void declareXboxController() {
+        DriverStationSim.setJoystickIsXbox(JOYSTICK_PORT, true);
+        DriverStationSim.setJoystickType(JOYSTICK_PORT, XINPUT_GAMEPAD_TYPE);
+        DriverStationSim.setJoystickName(JOYSTICK_PORT, JOYSTICK_NAME);
+        DriverStationSim.setJoystickAxisCount(JOYSTICK_PORT, JoystickSample.AXIS_COUNT);
+        DriverStationSim.setJoystickButtonCount(JOYSTICK_PORT, JoystickSample.BUTTON_COUNT);
+        DriverStationSim.setJoystickPOVCount(JOYSTICK_PORT, 1);
+    }
+
+    /**
+     * Sets port 0's axes, buttons and D-pad; the caller notifies the driver station of new data.
+     *
+     * @param sample Controller state to write.
+     */
+    private void writeJoystick(JoystickSample sample) {
+        for (int axisIndex = 0; axisIndex < JoystickSample.AXIS_COUNT; axisIndex++) {
+            DriverStationSim.setJoystickAxis(JOYSTICK_PORT, axisIndex, sample.getAxis(axisIndex));
+        }
+        DriverStationSim.setJoystickButtons(JOYSTICK_PORT, sample.buttonBits());
+        DriverStationSim.setJoystickPOV(JOYSTICK_PORT, 0, sample.povDeg());
+    }
+
+    /** Sends the robot's rumble request to the game when it has changed. */
+    private void publishRumble() {
+        int leftRaw = DriverStationSim.getJoystickRumble(JOYSTICK_PORT, 0);
+        int rightRaw = DriverStationSim.getJoystickRumble(JOYSTICK_PORT, 1);
+        RumbleValues rumble = rumbleTracker.update(leftRaw, rightRaw);
+        if (rumble != null) {
+            link.publishRumble(rumble);
+        }
     }
 
     // ---- low-level helpers (static, no side effects)
@@ -287,6 +442,7 @@ public final class DriverSimBridge {
         state[MatchStateLayout.IS_RED_HUB_ACTIVE] = convertToDouble(status.isRedHubActive());
         state[MatchStateLayout.STATION] = stationIndex;
         state[MatchStateLayout.AUTO_WINNER] = computeAutoWinnerCode(status.gameMessage());
+        state[MatchStateLayout.IS_PAUSED] = convertToDouble(status.isPaused());
         return state;
     }
 
