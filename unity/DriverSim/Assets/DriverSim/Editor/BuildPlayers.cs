@@ -17,15 +17,15 @@ namespace DriverSim.Editor
     public static class BuildPlayers
     {
         /// <summary>Builds the Linux player.</summary>
-        [MenuItem("Driver-Sim/Build Linux Player")]
+        [MenuItem("Fieldrunner/Build Linux Player")]
         public static void BuildLinux()
         {
             GraphicsDeviceType[] graphicsApis = { GraphicsDeviceType.Vulkan, GraphicsDeviceType.OpenGLCore };
-            Build(BuildTarget.StandaloneLinux64, graphicsApis, "Linux/DriverSim.x86_64");
+            Build(BuildTarget.StandaloneLinux64, graphicsApis, "Linux/Fieldrunner.x86_64");
         }
 
         /// <summary>Builds the Windows player.</summary>
-        [MenuItem("Driver-Sim/Build Windows Player")]
+        [MenuItem("Fieldrunner/Build Windows Player")]
         public static void BuildWindows()
         {
             GraphicsDeviceType[] graphicsApis = {
@@ -33,20 +33,20 @@ namespace DriverSim.Editor
                 GraphicsDeviceType.Direct3D12,
                 GraphicsDeviceType.Vulkan,
             };
-            Build(BuildTarget.StandaloneWindows64, graphicsApis, "Windows/DriverSim.exe");
+            Build(BuildTarget.StandaloneWindows64, graphicsApis, "Windows/Fieldrunner.exe");
         }
 
         /// <summary>
         /// Builds the macOS player as a universal app (Intel and Apple Silicon); needs the editor's Mac Build Support
         /// (Mono) module.
         /// </summary>
-        [MenuItem("Driver-Sim/Build Mac Player")]
+        [MenuItem("Fieldrunner/Build Mac Player")]
         public static void BuildMac()
         {
             string macTargetName = BuildPipeline.GetBuildTargetName(BuildTarget.StandaloneOSX);
             EditorUserBuildSettings.SetPlatformSettings(macTargetName, "Architecture", "x64ARM64");
             GraphicsDeviceType[] graphicsApis = { GraphicsDeviceType.Metal };
-            Build(BuildTarget.StandaloneOSX, graphicsApis, "Mac/DriverSim.app");
+            Build(BuildTarget.StandaloneOSX, graphicsApis, "Mac/Fieldrunner.app");
         }
 
         /// <summary>Builds every desktop player we ship.</summary>

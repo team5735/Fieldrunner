@@ -23,7 +23,7 @@ public final class DriverSimMain {
     private DriverSimMain() { throw new UnsupportedOperationException("This is a utility class!"); }
 
     /**
-     * Starts the robot with the Driver-Sim bridge attached.
+     * Starts the robot with the Fieldrunner bridge attached.
      *
      * @param args Ignored.
      */
@@ -57,7 +57,7 @@ public final class DriverSimMain {
         }
         default ->
             throw new IllegalStateException(
-                "Driver-Sim needs a full robot; Constants.CURRENT_ROBOT is " + Constants.CURRENT_ROBOT
+                "Fieldrunner needs a full robot; Constants.CURRENT_ROBOT is " + Constants.CURRENT_ROBOT
             );
         }
 

@@ -18,7 +18,7 @@ namespace DriverSim.Editor
 {
     /// <summary>
     /// Generates the game scene from code so it is reproducible and reviewable: lighting, the AdvantageScope field,
-    /// the driver camera and the game objects with their references wired. Run from the menu (Driver-Sim > Rebuild
+    /// the driver camera and the game objects with their references wired. Run from the menu (Fieldrunner > Rebuild
     /// Scene) or in batch mode with <c>-executeMethod DriverSim.Editor.SceneBuilder.BuildScene</c>.
     /// Also applies the player settings the trainer needs (runs in the background, windowed).
     /// </summary>
@@ -34,7 +34,7 @@ namespace DriverSim.Editor
 
         /// <summary>Builds and saves the scene, registers it as the only build scene, and sets player
         /// settings.</summary>
-        [MenuItem("Driver-Sim/Rebuild Scene")]
+        [MenuItem("Fieldrunner/Rebuild Scene")]
         public static void BuildScene()
         {
             ApplyPlayerSettings();
@@ -351,7 +351,7 @@ namespace DriverSim.Editor
         private static void ApplyPlayerSettings()
         {
             PlayerSettings.companyName = "FRC 5735";
-            PlayerSettings.productName = "DriverSim";
+            PlayerSettings.productName = "Fieldrunner";
             PlayerSettings.runInBackground = true; // keep running while the sim GUI has focus
             PlayerSettings.fullScreenMode = FullScreenMode.Windowed;
             PlayerSettings.defaultScreenWidth = 1600;

@@ -35,7 +35,7 @@ import driversim.mech.MechanismSnapshot;
 import driversim.mech.RobotMechanismSim;
 
 /**
- * Sim-only glue between the unmodified robot code and the Driver-Sim game. Each {@link #update} it advances the
+ * Sim-only glue between the unmodified robot code and the Fieldrunner game. Each {@link #update} it advances the
  * mechanism sim, applies commands from the game (match control, robot placement) and the game's pose corrections
  * (collisions), drives the simulated driver station, and publishes robot and match state over NetworkTables.
  *
@@ -57,7 +57,7 @@ public final class DriverSimBridge {
 
     private static final int JOYSTICK_PORT = 0;        // driver station port of the driver's Xbox controller
     private static final int XINPUT_GAMEPAD_TYPE = 1;  // HAL joystick type of an XInput gamepad
-    private static final String JOYSTICK_NAME = "Xbox Controller (Driver-Sim)";  // name shown for port 0
+    private static final String JOYSTICK_NAME = "Xbox Controller (Fieldrunner)";  // name shown for port 0
 
     private final Robot robot;                     // the robot program; ended through it when the game quits
     private final DrivetrainSubsystem drivetrain;  // the robot's swerve drivetrain (CTRE sim runs its physics)

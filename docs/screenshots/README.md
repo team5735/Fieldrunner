@@ -26,3 +26,4 @@ phase and what changed. Scratch captures live in `_raw/` (git-ignored, ephemeral
 | 19 | Options screen: camera view, field of view, details panel, colliders, fullscreen, resolution, graphics quality. |
 | 20 | Pause menu during free practice (Restart Match appears only in a match). |
 | 21 | In-game HUD with the "Controller connected" toast and the new hotkey line (`--screenshot-menu toast`). |
+| 22 | Title screen after the rename: the game is now called Fieldrunner (window title, title screen, executables); plumbing names stay DriverSim. |

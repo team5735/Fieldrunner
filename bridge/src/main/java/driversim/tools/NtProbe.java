@@ -11,7 +11,7 @@ import driversim.game.MatchStateLayout;
 import driversim.game.RobotStateLayout;
 
 /**
- * Developer tool that connects to a running Driver-Sim robot sim the same way the Unity game does (NT4 client on
+ * Developer tool that connects to a running Fieldrunner robot sim the same way the Unity game does (NT4 client on
  * localhost), prints robot and match state twice a second, and optionally sends game commands.
  *
  * <p>

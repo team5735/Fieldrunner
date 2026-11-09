@@ -21,3 +21,9 @@ unity/Builds/
 
 # scratch captures (ephemeral); curated shots are copied up as NN-phaseX-what.jpg
 docs/screenshots/_raw/
+
+# core dumps (a crashing Unity editor or WPILib sim writes core / core.<pid> into its working directory)
+core
+core.[0-9]*
+*.core
+!core/

@@ -174,7 +174,8 @@ final class SelfTest {
         steps.add(Commands.runOnce(this::finish));
         Command[] stepArray = steps.toArray(new Command[0]);
         Command sequence = Commands.sequence(stepArray);
-        Command test = sequence.ignoringDisable(true).finallyDo(this::handleTestEnded).withName("Driver-Sim self-test");
+        Command test =
+            sequence.ignoringDisable(true).finallyDo(this::handleTestEnded).withName("Fieldrunner self-test");
         CommandScheduler.getInstance().schedule(test);
     }
 

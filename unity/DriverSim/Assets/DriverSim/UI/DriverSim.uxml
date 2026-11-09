@@ -4,7 +4,7 @@
 
         <ui:VisualElement name="screen-title" class="screen">
             <ui:VisualElement class="panel">
-                <ui:Label text="DRIVER-SIM" class="title" />
+                <ui:Label text="FIELDRUNNER" class="title" />
                 <ui:Label text="FRC 5735 Control Freaks" class="subtitle" />
                 <ui:Button name="btn-start-match" text="Start Match" class="menu-button" />
                 <ui:Button name="btn-free-practice" text="Free Practice" class="menu-button" />

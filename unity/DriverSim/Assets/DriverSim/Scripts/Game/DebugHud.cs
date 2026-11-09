@@ -169,7 +169,7 @@ namespace DriverSim.Game
             string redHub = MakeActiveText(match.IsRedHubActive);
 
             string collisionLine = MakeCollisionLine() + "\n" + MakeBumpLine();
-            string text = "Driver-Sim\n"
+            string text = "Fieldrunner\n"
                 + "robot sim: " + connection + "\n"
                 + mismatch
                 + "station: " + stationName + "   view: " + view + "\n"

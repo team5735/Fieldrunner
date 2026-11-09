@@ -1,10 +1,10 @@
-// Driver-Sim: driver-training game on top of WPILib simulation.
+// Fieldrunner: driver-training game on top of WPILib simulation.
 //
 // Applied from the robot project's build.gradle with:
 //   if (file('../Fieldrunner/gradle/driversim.gradle').exists()) {
 //       apply from: '../Fieldrunner/gradle/driversim.gradle' }
 //
-// Tasks (all in the "driver sim" group):
+// Tasks (all in the "fieldrunner" group):
 //   simulateDriverSim  - robot code + bridge in WPILib sim, and launches the Unity game, which is the only window: the
 //                        bridge is the driver station and the game supplies the controller. Add -PdriverSimGui to also
 //                        open the WPILib sim GUI, which then supplies joysticks and enable (the game's are ignored).
@@ -13,7 +13,7 @@
 //   testDriverSim      - unit tests for the bridge's pure logic.
 //
 // The bridge (Fieldrunner/bridge) is compiled as its own source set against the robot code; nothing in the robot's
-// src/ changes. When a Driver-Sim run task is requested, GradleRIO's own simulateJavaRelease task is reconfigured to
+// src/ changes. When a Fieldrunner run task is requested, GradleRIO's own simulateJavaRelease task is reconfigured to
 // start driversim.DriverSimMain instead of the robot's Main, so WPILib's native libraries and HAL sim extensions are
 // set up exactly as for ./gradlew simulateJava. Plain simulateJava is unaffected.
 
@@ -40,15 +40,15 @@ configurations {
 }
 
 tasks.register('testDriverSim', Test) {
-    group = 'driver sim'
-    description = 'Runs the Driver-Sim bridge unit tests.'
+    group = 'fieldrunner'
+    description = 'Runs the Fieldrunner bridge unit tests.'
     testClassesDirs = sourceSets.driverSimTest.output.classesDirs
     classpath = sourceSets.driverSimTest.runtimeClasspath
     useJUnitPlatform()
     wpi.java.configureTestTasks(it)
 }
 
-// ---- run tasks: reconfigure GradleRIO's sim task only when a Driver-Sim run task was asked for
+// ---- run tasks: reconfigure GradleRIO's sim task only when a Fieldrunner run task was asked for
 
 def requestedTasks = gradle.startParameter.taskNames.collect { it.tokenize(':').last() }
 def isDriverSimRun = requestedTasks.contains('simulateDriverSim')
@@ -134,14 +134,14 @@ tasks.register('stopDriverSimGame') {
 }
 
 tasks.register('simulateDriverSim') {
-    group = 'driver sim'
-    description = 'Runs the robot code in WPILib sim with the Driver-Sim bridge and starts the Unity game.'
+    group = 'fieldrunner'
+    description = 'Runs the robot code in WPILib sim with the Fieldrunner bridge and starts the Unity game.'
     dependsOn wpi.java.simulationTaskRelease
 }
 
 tasks.register('probeDriverSim', JavaExec) {
-    group = 'driver sim'
-    description = 'Connects to a running Driver-Sim like the game does; prints state and sends commands (-Pargs="...").'
+    group = 'fieldrunner'
+    description = 'Connects to a running Fieldrunner sim like the game; prints state and sends commands (-Pargs="...").'
     def extractNatives = wpi.java.extractNativeReleaseArtifacts
     dependsOn tasks.named('driverSimClasses'), extractNatives
     classpath = sourceSets.driverSim.runtimeClasspath
@@ -158,14 +158,14 @@ tasks.register('probeDriverSim', JavaExec) {
 }
 
 tasks.register('selfTestDriverSimWithGame') {
-    group = 'driver sim'
+    group = 'fieldrunner'
     description = 'Headless self-test plus the built Unity game: checks its collisions reach the robot code.'
     dependsOn wpi.java.simulationTaskRelease
 }
 
 tasks.register('selfTestDriverSim') {
-    group = 'driver sim'
-    description = 'Headless scripted check that the Driver-Sim bridge makes the robot code work in sim.'
+    group = 'fieldrunner'
+    description = 'Headless scripted check that the Fieldrunner bridge makes the robot code work in sim.'
     dependsOn wpi.java.simulationTaskRelease
 }
 
@@ -179,11 +179,11 @@ def findDriverSimGame(File driverSimRoot) {
         return new File(override)
     }
     def os = org.gradle.internal.os.OperatingSystem.current()
-    def relativePath = 'unity/Builds/Linux/DriverSim.x86_64'
+    def relativePath = 'unity/Builds/Linux/Fieldrunner.x86_64'
     if (os.isWindows()) {
-        relativePath = 'unity/Builds/Windows/DriverSim.exe'
+        relativePath = 'unity/Builds/Windows/Fieldrunner.exe'
     } else if (os.isMacOsX()) {
-        relativePath = 'unity/Builds/Mac/DriverSim.app/Contents/MacOS/DriverSim'
+        relativePath = 'unity/Builds/Mac/Fieldrunner.app/Contents/MacOS/Fieldrunner'
     }
     def game = new File(driverSimRoot, relativePath)
     if (game.exists()) {

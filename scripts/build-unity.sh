@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Builds the Driver-Sim Unity game in batch mode.
+# Builds the Fieldrunner Unity game in batch mode.
 #
 #   scripts/build-unity.sh [linux|windows|mac|all|scene]     (default: linux)
 #

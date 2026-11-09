@@ -7,7 +7,7 @@ using UnityEngine.Rendering;
 namespace DriverSim.Net
 {
     /// <summary>
-    /// The game's connection to the Driver-Sim bridge running inside the robot sim. Owns the NT4 client, decodes
+    /// The game's connection to the Fieldrunner bridge running inside the robot sim. Owns the NT4 client, decodes
     /// robot and match state, smooths the robot state for rendering, and sends game commands.
     ///
     /// Rendering reads <see cref="GetRobotState"/>, which is interpolated a little behind the newest sample so motion

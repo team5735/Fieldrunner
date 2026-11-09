@@ -7,7 +7,7 @@ namespace DriverSim.Net
     public static class Protocol
     {
         public const int Version = 3; // GameLink.PROTOCOL_VERSION; must match the bridge
-        public const string Prefix = "/DriverSim/"; // every Driver-Sim topic starts with this
+        public const string Prefix = "/DriverSim/"; // every Fieldrunner topic starts with this
         public const string RobotStateTopic = "/DriverSim/robot/state"; // double[], bridge to game
         public const string MatchStateTopic = "/DriverSim/match/state"; // double[], bridge to game
         public const string BridgeInfoTopic = "/DriverSim/bridge/info"; // string, bridge to game

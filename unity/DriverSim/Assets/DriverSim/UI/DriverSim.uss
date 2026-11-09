@@ -1,4 +1,4 @@
-/* Driver-Sim menus: dark translucent panels over the live field view; sizes are for a 1920x1080 reference. */
+/* Fieldrunner menus: dark translucent panels over the live field view; sizes are for a 1920x1080 reference. */
 
 .root {
     position: absolute;

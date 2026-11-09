@@ -10,7 +10,7 @@
 #   game args   extra game arguments, e.g. --view overhead or --screenshot-menu controls; the game starts with
 #               --start-in practice unless they contain --start-in
 #
-# Needs a built game (scripts/build-unity.sh) and FRC-2026 next to Driver-Sim. Windows appear on the display.
+# Needs a built game (scripts/build-unity.sh) and FRC-2026 next to Fieldrunner. Windows appear on the display.
 set -euo pipefail
 
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
