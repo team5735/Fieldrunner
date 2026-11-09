@@ -13,16 +13,19 @@ namespace DriverSim.Game
         StationPicker,
         Pause,
         Controls,
+        Controllers,
         Options,
         ControllerLost,
     }
 
-    /// <summary>A button the player can press on the title, station, pause, controls and options screens.</summary>
+    /// <summary>A button the player can press on the title, station, pause, controls, controllers and options
+    /// screens.</summary>
     public enum MenuButton
     {
         StartMatch,
         FreePractice,
         Controls,
+        Controllers,
         Options,
         Quit,
         StationBack,
@@ -31,6 +34,7 @@ namespace DriverSim.Game
         ResetRobot,
         QuitToTitle,
         Back,
+        ControllersBack,
     }
 
     /// <summary>
@@ -63,6 +67,7 @@ namespace DriverSim.Game
         private Label titleNotice; // title: input-owner notice
         private Label toast; // bottom-of-screen message
         private ControlsView controlsView; // Controls screen logic
+        private ControllersView controllersView; // Controllers screen logic
         private OptionsView optionsView; // Options screen logic
         private MenuScreen shownScreen = MenuScreen.None; // screen currently showing
         private int focusRequestId; // counts focus requests, so an older retry loop stops when a newer one starts
@@ -107,6 +112,10 @@ namespace DriverSim.Game
             {
                 controlsView.Refresh();
             }
+            if (screen == MenuScreen.Controllers)
+            {
+                controllersView.Refresh();
+            }
             if (screen == MenuScreen.Options)
             {
                 optionsView.Refresh();
@@ -131,7 +140,7 @@ namespace DriverSim.Game
         /// ready.</summary>
         /// <param name="isReady">Whether the robot sim's bridge is connected and compatible.</param>
         /// <param name="statusText">Connection line.</param>
-        /// <param name="deviceText">Active input device line.</param>
+        /// <param name="deviceText">Driver device line.</param>
         /// <param name="noticeText">Extra notice; empty for none.</param>
         public void SetTitleState(bool isReady, string statusText, string deviceText, string noticeText)
         {
@@ -191,6 +200,10 @@ namespace DriverSim.Game
             {
                 controlsView.UpdateView();
             }
+            if (shownScreen == MenuScreen.Controllers)
+            {
+                controllersView.UpdateView();
+            }
         }
 
         // ---- private stateful helpers
@@ -213,6 +226,7 @@ namespace DriverSim.Game
             screens[MenuScreen.StationPicker] = root.Q<VisualElement>("screen-station");
             screens[MenuScreen.Pause] = root.Q<VisualElement>("screen-pause");
             screens[MenuScreen.Controls] = root.Q<VisualElement>("screen-controls");
+            screens[MenuScreen.Controllers] = root.Q<VisualElement>("screen-controllers");
             screens[MenuScreen.Options] = root.Q<VisualElement>("screen-options");
             screens[MenuScreen.ControllerLost] = root.Q<VisualElement>("screen-disconnected");
 
@@ -220,6 +234,7 @@ namespace DriverSim.Game
             startMatchButton = Wire("btn-start-match", MenuButton.StartMatch);
             freePracticeButton = Wire("btn-free-practice", MenuButton.FreePractice);
             Wire("btn-controls", MenuButton.Controls);
+            Wire("btn-controllers", MenuButton.Controllers);
             Wire("btn-options", MenuButton.Options);
             Wire("btn-quit", MenuButton.Quit);
             titleStatus = root.Q<Label>("title-status");
@@ -241,15 +256,18 @@ namespace DriverSim.Game
             restartMatchButton = Wire("btn-restart-match", MenuButton.RestartMatch);
             Wire("btn-reset-robot", MenuButton.ResetRobot);
             Wire("btn-pause-controls", MenuButton.Controls);
+            Wire("btn-pause-controllers", MenuButton.Controllers);
             Wire("btn-pause-options", MenuButton.Options);
             Wire("btn-quit-to-title", MenuButton.QuitToTitle);
 
-            // controls and options
+            // controls, controllers and options
             Button resetAll = root.Q<Button>("btn-controls-reset-all");
             resetAll.clicked += HandleResetAllClicked;
             Wire("btn-controls-back", MenuButton.Back);
+            Wire("btn-controllers-back", MenuButton.ControllersBack);
             Wire("btn-options-back", MenuButton.Back);
             controlsView = new ControlsView(screens[MenuScreen.Controls], input);
+            controllersView = new ControllersView(screens[MenuScreen.Controllers], input);
             optionsView = new OptionsView(screens[MenuScreen.Options], options);
 
             toast = root.Q<Label>("toast");
@@ -332,6 +350,8 @@ namespace DriverSim.Game
                     return root.Q<Button>("btn-resume");
                 case MenuScreen.Controls:
                     return controlsView.GetFirstFocusable();
+                case MenuScreen.Controllers:
+                    return root.Q<Button>("btn-controllers-back");
                 case MenuScreen.Options:
                     return optionsView.GetFirstFocusable();
             }

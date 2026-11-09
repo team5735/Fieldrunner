@@ -1,5 +1,6 @@
 using UnityEngine.InputSystem;
 using UnityEngine.InputSystem.DualShock;
+using UnityEngine.InputSystem.Switch;
 using UnityEngine.InputSystem.XInput;
 
 namespace DriverSim.Game
@@ -34,7 +35,60 @@ namespace DriverSim.Game
             {
                 return ControllerFamily.PlayStation;
             }
+
+            // a gamepad without a dedicated type (on Linux an Xbox pad is a plain gamepad): go by its name
+            if (device is Gamepad)
+            {
+                string familyName = GetGamepadFamilyName(device.displayName);
+                if (familyName == "Xbox")
+                {
+                    return ControllerFamily.Xbox;
+                }
+                if (familyName == "PlayStation")
+                {
+                    return ControllerFamily.PlayStation;
+                }
+            }
             return ControllerFamily.Generic;
+        }
+
+        /// <summary>The name shown for a device: its display name, or "Keyboard".</summary>
+        /// <param name="device">Any input device; null counts as the keyboard.</param>
+        public static string GetDeviceName(InputDevice device)
+        {
+            if (device == null || device is Keyboard)
+            {
+                return "Keyboard";
+            }
+            return device.displayName;
+        }
+
+        /// <summary>The kind of device as shown on a Controllers card: Xbox, PlayStation, Switch, Gamepad, Joystick
+        /// or Keyboard.</summary>
+        /// <param name="device">Any input device; null counts as the keyboard.</param>
+        public static string GetFamilyName(InputDevice device)
+        {
+            if (device == null || device is Keyboard)
+            {
+                return "Keyboard";
+            }
+            if (device is XInputController)
+            {
+                return "Xbox";
+            }
+            if (device is DualShockGamepad)
+            {
+                return "PlayStation";
+            }
+            if (device is SwitchProControllerHID)
+            {
+                return "Switch";
+            }
+            if (device is Gamepad)
+            {
+                return GetGamepadFamilyName(device.displayName);
+            }
+            return "Joystick";
         }
 
         /// <summary>
@@ -63,6 +117,26 @@ namespace DriverSim.Game
         }
 
         // ---- low-level helpers (static, no side effects)
+
+        /// <summary>The family of a gamepad the Input System has no dedicated type for (on Linux an Xbox pad is a plain
+        /// gamepad), guessed from its display name.</summary>
+        private static string GetGamepadFamilyName(string displayName)
+        {
+            string lowerName = displayName.ToLowerInvariant();
+            if (lowerName.Contains("xbox"))
+            {
+                return "Xbox";
+            }
+            if (lowerName.Contains("dualsense") || lowerName.Contains("dualshock") || lowerName.Contains("playstation"))
+            {
+                return "PlayStation";
+            }
+            if (lowerName.Contains("nintendo") || lowerName.Contains("pro controller"))
+            {
+                return "Switch";
+            }
+            return "Gamepad";
+        }
 
         /// <summary>Name of a gamepad control for a family, or null when the control is not one of the known
         /// ones.</summary>

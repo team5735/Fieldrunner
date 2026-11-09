@@ -31,6 +31,7 @@ All code follows the team style guide, [`FRC/STYLE.md`](../FRC/STYLE.md); Java i
 | 2 | Unity core: NT4 client, field, robot, driver-station camera | done |
 | 3 | Collisions: walls, hub, tower, trench, bumps | done |
 | 3b | Game shell: title, station picker, pause, controls and options screens; controller and keyboard input; the bridge is the driver station (no sim GUI) | done |
+| 3c | Controllers screen: choose which device drives (keyboard or one controller) | done |
 | 4 | Gameplay: fuel, intake, shooting, scoring, HUD | |
 | 5 | Packaging: Windows/Linux builds, run scripts | |
 
@@ -73,9 +74,9 @@ docs/screenshots/                    current renders
 More renders, in build order: [docs/screenshots](docs/screenshots/README.md).
 
 `./gradlew simulateDriverSim` opens one window, the game, at a title screen: Start Match or Free Practice (each asks
-for a driver station first), Controls, Options, Quit. The camera stands behind the selected station and faces the field
+for a driver station first), Controls, Controllers, Options, Quit. The camera stands behind the selected station and faces the field
 center. Esc (or Start then Back on a controller, held half a second) pauses; the pause menu has Resume, Restart Match,
-Reset Robot, Controls, Options and Quit to Title. Closing the game (Quit, F10 or the window) ends the
+Reset Robot, Controls, Controllers, Options and Quit to Title. Closing the game (Quit, F10 or the window) ends the
 `simulateDriverSim` session: the game sends `quit` and the robot sim exits cleanly.
 
 Build it with `scripts/build-unity.sh` (Linux; `windows` / `mac` / `all` for the others) — the project must not be
@@ -85,7 +86,7 @@ Game hotkeys (kept off the keys the robot uses, since the keyboard is also a rob
 F1 details panel, F2 obstacle collider overlay, F3 driver / overhead view, F4 / F5 field of view narrower / wider,
 F6 reset robot to its start spot, F10 quit. Game arguments (also via `DRIVERSIM_GAME_ARGS`): `--nt-host <host>`,
 `--start-in title|practice|match` (default `title`; `practice` and `match` skip the menus), `--station <B1..R3>`,
-`--view overhead`, `--show-colliders`, `--screenshot-menu title|station|controls|options|pause|disconnected|toast`
+`--view overhead`, `--show-colliders`, `--screenshot-menu title|station|controls|controllers|options|pause|disconnected|toast`
 (opens that screen, for captures), `--collision-selftest` (feeds synthetic poses to the collision code, logs
 `[Driver-Sim collision-selftest] PASS|FAIL ...` to the player log and exits 0/1),
 `--screenshot <png> [--screenshot-delay s] [--screenshot-count n] [--screenshot-interval s] [--quit-after-screenshot]`.
@@ -123,12 +124,15 @@ Unity world = field center origin, X = field x, Z = field y, Y = up (`Field/Fiel
 
 ### Controller and keyboard
 
-The game is the driver station. It reads whatever controller is plugged in (Xbox, PlayStation and Switch Pro
-controllers work through Unity's gamepad mapping) or, with none, the keyboard, and sends a virtual Xbox controller to
-the bridge, which writes it to driver station port 0 where the robot code reads it. The Controls screen (title or pause
+The game is the driver station. It reads one **driver device**, the keyboard or one controller (Xbox, PlayStation and
+Switch Pro controllers work through Unity's gamepad mapping), and sends a virtual Xbox controller to the bridge, which
+writes it to driver station port 0 where the robot code reads it. At startup the driver is the first controller, or
+the keyboard with none; a controller plugged in while the keyboard drives takes over (a toast says so), one plugged in
+while another controller drives waits in the Controllers screen. Only the driver device drives; every device still
+works in the menus. The title screen's "Driver:" line shows who it is. The Controls screen (title or pause
 menu) shows what every input does, with labels that follow the connected controller (A/B/X/Y, Cross/Circle/Square/
 Triangle, or South/East/West/North), and rebinds any of them: pick an input, press the new one. Changes are saved to
-`bindings.json` in the game's persistent data folder. Unplugging the active controller during play pauses at once; a
+`bindings.json` in the game's persistent data folder. Unplugging the driver controller during play pauses at once; a
 key press switches to the keyboard, reconnecting the controller returns to it. An unrecognized joystick (flight stick,
 unusual HID) has no default bindings: the game opens the Controls screen so you can bind its inputs. The robot code's
 rumble requests drive the controller's motors.
@@ -146,6 +150,15 @@ rumble requests drive the controller's motors.
 | Right / left bumper | intake in / out (hold) | Left Shift / Left Ctrl |
 | D-pad down / up | intake slapdown / lift (hold) | Down / Up arrow |
 | D-pad left | spindex backwards (hold) | Left arrow |
+
+**Controllers screen** (title or pause menu): every detected gamepad, joystick and the keyboard is a card, and one
+large Driver slot sits on the left. Press **left** on a device (D-pad or left stick; Left arrow or A on the keyboard)
+to make it the driver; the previous driver drops back to the middle. Press **right** on the driver to step out: the
+slot empties and shows a dimmed keyboard card, because the keyboard drives if nobody takes the slot before the screen
+closes. Cards light up when their device has input, and can be clicked. B / Esc go back. Unplugging the driver while
+the screen is open just empties the slot. A joystick without saved bindings moved into the slot opens the Controls
+screen to bind it first. The choice is not remembered across restarts. The log's `[Driver-Sim] input devices: ...`
+line lists the devices and the driver at startup and on every connect, disconnect and takeover.
 
 The table mirrors `Robot.setupDriverBindings()` (`Game/RobotControlsLayout.cs`). While Start is held, Back is withheld
 from the robot, so the pause chord never resets the field-centric heading.

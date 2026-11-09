@@ -8,14 +8,17 @@ using UnityEngine.InputSystem;
 namespace DriverSim.Game
 {
     /// <summary>
-    /// Builds the virtual Xbox controller the robot code reads, every frame, from the player's controller or keyboard.
-    /// The inputs come from the actions in DriverControls.inputactions, which has one action per virtual control and
-    /// two control schemes: Controller (any gamepad: Xbox, PlayStation, Switch Pro) and Keyboard. The controller is
-    /// active whenever a gamepad (or a joystick the player has bound) is connected, otherwise the keyboard.
+    /// Builds the virtual Xbox controller the robot code reads, every frame, from the driver device: the keyboard or
+    /// one controller. The inputs come from the actions in DriverControls.inputactions, which has one action per
+    /// virtual control and two control schemes: Controller (any gamepad: Xbox, PlayStation, Switch Pro) and Keyboard.
+    /// The actions read only the driver device. At startup the driver is the first gamepad (or a joystick the player
+    /// has bound), otherwise the keyboard; a gamepad connecting while the keyboard drives takes over, one connecting
+    /// while another controller drives joins the other candidates. The Controllers screen changes the driver with
+    /// <see cref="SetDriverDevice"/> and <see cref="StepOutDriver"/>; while the slot is empty the keyboard drives.
     ///
     /// While Start is held, Back is withheld from the robot so the pause chord (Start, then Back) never resets the
     /// field-centric heading. Bindings the player changes are saved to <c>bindings.json</c> in the persistent data
-    /// folder. Rumble requests from the robot code go to the active gamepad's motors.
+    /// folder. Rumble requests from the robot code go to the driver's motors when it is a gamepad.
     /// </summary>
     public sealed class ControllerInput : MonoBehaviour
     {
@@ -27,26 +30,30 @@ namespace DriverSim.Game
 
         private readonly Dictionary<VirtualControl, InputAction> actionsByControl =
             new Dictionary<VirtualControl, InputAction>(); // runtime action for each virtual control
+        private readonly List<InputDevice> candidates = new List<InputDevice>(); // gamepads, joysticks, then keyboard
         private InputActionAsset actions; // runtime copy of actionsAsset, so edits never touch the asset
         private ControlRebinder rebinder; // changes and saves bindings
         private InputScheme activeScheme = InputScheme.Keyboard; // scheme currently read
-        private InputDevice activeController; // gamepad or joystick the player is using, null without one
-        private bool isKeyboardForced; // the player chose the keyboard after the controller disconnected
-        private bool hasAnnouncedStartup; // the controller present at startup has been announced
+        private InputDevice driverDevice; // the keyboard or controller that drives; null when there is no keyboard
+        private InputDevice appliedDevice; // device the actions are restricted to now; null for none
+        private InputDevice pendingBindDevice; // joystick that becomes the driver once it has bindings
+        private bool isDriverSlotEmpty; // the driver stepped out on the Controllers screen; the keyboard drives
+        private int layoutVersion; // counts changes to the candidates, the driver and the empty slot
+        private bool hasAnnouncedStartup; // the driver present at startup has been announced
         private int reportedJoystickId; // device id of the unrecognized joystick already reported, 0 for none
         private bool isLeftStickYInverted; // drive stick Y is flipped
         private JoystickState rawState = JoystickState.Neutral; // controller reading as the player holds it
         private JoystickState robotState = JoystickState.Neutral; // reading the robot code should see
 
-        /// <summary>Raised with the controller's name when a gamepad is connected (also for one present at
-        /// startup).</summary>
-        public event Action<string> ControllerConnected;
+        /// <summary>Raised with the gamepad's name and whether it became the driver when a gamepad is connected (also
+        /// for the driver present at startup).</summary>
+        public event Action<string, bool> ControllerConnected;
 
-        /// <summary>Raised when the controller the player was using is disconnected.</summary>
+        /// <summary>Raised when the driver device is disconnected; the keyboard drives from then on.</summary>
         public event Action ActiveControllerLost;
 
-        /// <summary>Raised with the device name the first time an unrecognized joystick is the only
-        /// controller.</summary>
+        /// <summary>Raised with the device name when an unrecognized joystick needs bindings before it can
+        /// drive.</summary>
         public event Action<string> UnknownJoystickFound;
 
         /// <summary>Sets the actions to read; call before the scene starts.</summary>
@@ -62,21 +69,53 @@ namespace DriverSim.Game
             return activeScheme;
         }
 
-        /// <summary>The naming family of the active controller; Xbox when the keyboard is active.</summary>
-        public ControllerFamily GetActiveFamily()
+        /// <summary>The naming family of the driver device; Xbox when the keyboard drives.</summary>
+        public ControllerFamily GetDriverFamily()
         {
-            return ControlLabels.GetFamily(activeController);
+            if (IsKeyboard(driverDevice))
+            {
+                return ControllerFamily.Xbox;
+            }
+            return ControlLabels.GetFamily(driverDevice);
         }
 
-        /// <summary>The name of the active device for the title screen, e.g. "Xbox Wireless Controller" or
+        /// <summary>The name of the driver device for the title screen, e.g. "Xbox Wireless Controller" or
         /// "Keyboard".</summary>
-        public string GetActiveDeviceName()
+        public string GetDriverDeviceName()
         {
-            if (activeScheme == InputScheme.Controller && activeController != null)
-            {
-                return activeController.displayName;
-            }
-            return "Keyboard";
+            return ControlLabels.GetDeviceName(driverDevice);
+        }
+
+        /// <summary>The device the robot reads: the keyboard or one controller. While the slot is empty it is the
+        /// keyboard.</summary>
+        public InputDevice GetDriverDevice()
+        {
+            return driverDevice;
+        }
+
+        /// <summary>Whether a controller (not the keyboard) drives.</summary>
+        public bool IsDriverController()
+        {
+            return !IsKeyboard(driverDevice);
+        }
+
+        /// <summary>Whether the driver stepped out on the Controllers screen, so the slot shows the keyboard
+        /// placeholder.</summary>
+        public bool IsDriverSlotEmpty()
+        {
+            return isDriverSlotEmpty;
+        }
+
+        /// <summary>Every device that could drive: each gamepad and joystick, then the keyboard.</summary>
+        public IReadOnlyList<InputDevice> GetCandidateDevices()
+        {
+            return candidates;
+        }
+
+        /// <summary>A number that changes whenever the candidates, the driver or the empty slot change.</summary>
+        public int GetLayoutVersion()
+        {
+            return layoutVersion;
         }
 
         /// <summary>The controller reading as the player holds it, including Back while Start is held.</summary>
@@ -117,24 +156,73 @@ namespace DriverSim.Game
             PlayerPrefs.SetInt(InvertPrefKey, stored);
         }
 
-        /// <summary>Uses the keyboard even though a controller is (or was) connected, until a gamepad connects
-        /// again.</summary>
-        public void UseKeyboard()
+        /// <summary>
+        /// Makes a device the driver; the previous driver is then just a candidate. A joystick without saved bindings
+        /// is not made the driver yet: <see cref="UnknownJoystickFound"/> is raised so the player can bind it, and it
+        /// drives once it has bindings.
+        /// </summary>
+        /// <param name="device">A gamepad, a joystick or the keyboard from <see cref="GetCandidateDevices"/>.</param>
+        public void SetDriverDevice(InputDevice device)
         {
-            isKeyboardForced = true;
+            if (device == null)
+            {
+                return;
+            }
+
+            // a joystick the game has no bindings for cannot drive yet
+            if (device is Joystick && !rebinder.HasJoystickBindings())
+            {
+                pendingBindDevice = device;
+                if (UnknownJoystickFound != null)
+                {
+                    UnknownJoystickFound(device.displayName);
+                }
+                return;
+            }
+
+            // take the slot
+            driverDevice = device;
+            isDriverSlotEmpty = false;
+            pendingBindDevice = null;
+            ApplyDriver();
+            layoutVersion++;
+            LogDevices();
         }
 
-        /// <summary>Whether any gamepad is connected.</summary>
-        public bool HasGamepad()
+        /// <summary>Empties the driver slot: the driver becomes a candidate and the keyboard drives unless someone
+        /// takes the slot. Does nothing when the slot is already empty.</summary>
+        public void StepOutDriver()
         {
-            return Gamepad.all.Count > 0;
+            if (isDriverSlotEmpty)
+            {
+                return;
+            }
+            driverDevice = Keyboard.current;
+            isDriverSlotEmpty = true;
+            pendingBindDevice = null;
+            ApplyDriver();
+            layoutVersion++;
+            LogDevices();
         }
 
-        /// <summary>Runs the active gamepad's rumble motors; does nothing without one.</summary>
+        /// <summary>Ends the empty slot when the Controllers screen closes: the keyboard, which already drives, takes
+        /// the slot. Does nothing when the slot is not empty.</summary>
+        public void CloseDriverSlot()
+        {
+            if (!isDriverSlotEmpty)
+            {
+                return;
+            }
+            isDriverSlotEmpty = false;
+            layoutVersion++;
+            LogDevices();
+        }
+
+        /// <summary>Runs the driver's rumble motors when it is a gamepad; does nothing otherwise.</summary>
         /// <param name="rumble">Robot code's rumble request.</param>
         public void SetRumble(RumbleState rumble)
         {
-            Gamepad gamepad = activeController as Gamepad;
+            Gamepad gamepad = driverDevice as Gamepad;
             if (gamepad == null)
             {
                 return;
@@ -170,16 +258,19 @@ namespace DriverSim.Game
             rebinder.LoadOverrides();
             isLeftStickYInverted = PlayerPrefs.GetInt(InvertPrefKey, 0) != 0;
 
-            // start on the keyboard scheme; Update switches to a controller when one is there
-            ApplyScheme(InputScheme.Keyboard);
+            // the default driver; later connections are handled by HandleDeviceChange
+            RefreshCandidates();
+            driverDevice = FindDefaultDriver();
+            ApplyDriver();
             actions.Enable();
             InputSystem.onDeviceChange += HandleDeviceChange;
         }
 
         private void Update()
         {
-            AnnounceStartupController();
-            UpdateActiveController();
+            AnnounceStartupDriver();
+            UpdatePendingJoystick();
+            UpdateDeviceRestriction();
             rawState = ReadState();
             robotState = ComputeRobotState(rawState);
         }
@@ -192,34 +283,42 @@ namespace DriverSim.Game
 
         // ---- private stateful helpers
 
-        /// <summary>Tells listeners about a controller that was already connected when the game started.</summary>
-        private void AnnounceStartupController()
+        /// <summary>Tells listeners about the driver chosen at startup and logs the device list once.</summary>
+        private void AnnounceStartupDriver()
         {
             if (hasAnnouncedStartup)
             {
                 return;
             }
             hasAnnouncedStartup = true;
-            Gamepad gamepad = Gamepad.current;
-            if (gamepad != null && ControllerConnected != null)
+            LogDevices();
+            if (IsDriverController() && ControllerConnected != null)
             {
-                ControllerConnected(gamepad.displayName);
+                ControllerConnected(driverDevice.displayName, true);
             }
         }
 
-        /// <summary>Picks the controller and scheme to read this frame, and reports an unrecognized joystick
-        /// once.</summary>
-        private void UpdateActiveController()
+        /// <summary>
+        /// Makes a joystick the driver once it has bindings, and reports an unrecognized joystick that is the only
+        /// controller once so the player can bind it.
+        /// </summary>
+        private void UpdatePendingJoystick()
         {
-            // the most recently used gamepad, or a joystick the player has bound
-            InputDevice device = Gamepad.current;
-            if (device == null && rebinder.HasJoystickBindings())
+            // a joystick chosen on the Controllers screen drives as soon as the player has bound it
+            if (pendingBindDevice != null)
             {
-                device = Joystick.current;
+                if (!pendingBindDevice.added)
+                {
+                    pendingBindDevice = null;
+                }
+                else if (rebinder.HasJoystickBindings())
+                {
+                    InputDevice bound = pendingBindDevice;
+                    SetDriverDevice(bound);
+                }
             }
-            activeController = device;
 
-            // an unrecognized joystick with no bindings yet: ask the player to bind it
+            // an unrecognized joystick with no bindings yet, and no gamepad: ask the player to bind it
             Joystick joystick = Joystick.current;
             bool isOnlyJoystick = false;
             if (joystick != null && Gamepad.current == null && !rebinder.HasJoystickBindings())
@@ -229,36 +328,130 @@ namespace DriverSim.Game
             if (isOnlyJoystick && joystick.deviceId != reportedJoystickId)
             {
                 reportedJoystickId = joystick.deviceId;
+                pendingBindDevice = joystick;
                 if (UnknownJoystickFound != null)
                 {
                     UnknownJoystickFound(joystick.displayName);
                 }
             }
+        }
 
-            // controller scheme whenever there is one, unless the player chose the keyboard
-            InputScheme wanted = InputScheme.Keyboard;
-            if (device != null && !isKeyboardForced)
+        /// <summary>Restricts the actions to the driver device, except while a rebind listens: that must hear any
+        /// device of the scheme being rebound.</summary>
+        private void UpdateDeviceRestriction()
+        {
+            InputDevice wanted = driverDevice;
+            if (rebinder.IsRebinding())
             {
-                wanted = InputScheme.Controller;
+                wanted = null;
             }
-            if (wanted != activeScheme)
+            if (wanted == appliedDevice)
             {
-                ApplyScheme(wanted);
+                return;
+            }
+            appliedDevice = wanted;
+            if (wanted == null)
+            {
+                actions.devices = null;
+            }
+            else
+            {
+                actions.devices = new InputDevice[] { wanted };
             }
         }
 
-        /// <summary>Makes the actions read only one scheme's bindings.</summary>
-        /// <param name="scheme">Scheme to read from now on.</param>
-        private void ApplyScheme(InputScheme scheme)
+        /// <summary>Makes the actions read the driver's scheme: the keyboard's, or the controller's.</summary>
+        private void ApplyDriver()
         {
+            InputScheme scheme = InputScheme.Controller;
+            if (IsKeyboard(driverDevice))
+            {
+                scheme = InputScheme.Keyboard;
+            }
             activeScheme = scheme;
             string group = VirtualControls.GetGroupName(scheme);
             actions.bindingMask = InputBinding.MaskByGroup(group);
         }
 
-        /// <summary>Reacts to controllers coming and going.</summary>
+        /// <summary>Rebuilds the candidate list from the devices that are connected now.</summary>
+        private void RefreshCandidates()
+        {
+            candidates.Clear();
+            foreach (InputDevice device in InputSystem.devices)
+            {
+                if (device is Gamepad || device is Joystick)
+                {
+                    candidates.Add(device);
+                }
+            }
+            Keyboard keyboard = Keyboard.current;
+            if (keyboard != null)
+            {
+                candidates.Add(keyboard);
+            }
+            layoutVersion++;
+        }
+
+        /// <summary>The device that drives at startup: the first gamepad, else the first joystick when the player has
+        /// bound one, else the keyboard.</summary>
+        private InputDevice FindDefaultDriver()
+        {
+            foreach (InputDevice device in candidates)
+            {
+                if (device is Gamepad)
+                {
+                    return device;
+                }
+            }
+            if (rebinder.HasJoystickBindings())
+            {
+                foreach (InputDevice device in candidates)
+                {
+                    if (device is Joystick)
+                    {
+                        return device;
+                    }
+                }
+            }
+            return Keyboard.current;
+        }
+
+        /// <summary>Writes the device list to the log: each name and family, marking the driver.</summary>
+        private void LogDevices()
+        {
+            List<string> parts = new List<string>();
+            foreach (InputDevice device in candidates)
+            {
+                string name = ControlLabels.GetDeviceName(device);
+                string family = ControlLabels.GetFamilyName(device);
+                string detail = family;
+                if (device == driverDevice && !isDriverSlotEmpty)
+                {
+                    detail = family + ", driver";
+                }
+                parts.Add(name + " (" + detail + ")");
+            }
+            string list = string.Join("; ", parts);
+            string slotText = "";
+            if (isDriverSlotEmpty)
+            {
+                slotText = "; driver slot empty (the keyboard drives)";
+            }
+            Debug.Log("[Driver-Sim] input devices: " + list + slotText);
+        }
+
+        /// <summary>Reacts to controllers and keyboards coming and going.</summary>
         private void HandleDeviceChange(InputDevice device, InputDeviceChange change)
         {
+            bool isRelevant = false;
+            if (device is Gamepad || device is Joystick || device is Keyboard)
+            {
+                isRelevant = true;
+            }
+            if (!isRelevant)
+            {
+                return;
+            }
             bool isArrival = false;
             if (change == InputDeviceChange.Added || change == InputDeviceChange.Reconnected)
             {
@@ -269,21 +462,54 @@ namespace DriverSim.Game
             {
                 isDeparture = true;
             }
+            if (!isArrival && !isDeparture)
+            {
+                return;
+            }
+            RefreshCandidates();
+
+            // a keyboard that comes or goes while the keyboard drives
+            if (device is Keyboard && !IsDriverController() && !isDriverSlotEmpty)
+            {
+                driverDevice = Keyboard.current;
+                ApplyDriver();
+            }
+
+            // a gamepad arrives: it takes the slot from the keyboard, otherwise it waits on the Controllers screen
             if (isArrival && device is Gamepad)
             {
-                isKeyboardForced = false;
+                bool takesSlot = false;
+                if (!IsDriverController() && !isDriverSlotEmpty)
+                {
+                    takesSlot = true;
+                }
+                if (takesSlot)
+                {
+                    driverDevice = device;
+                    ApplyDriver();
+                }
                 if (ControllerConnected != null)
                 {
-                    ControllerConnected(device.displayName);
+                    ControllerConnected(device.displayName, takesSlot);
                 }
             }
-            if (isDeparture && device == activeController && activeScheme == InputScheme.Controller)
+
+            // the driver leaves: the slot empties and the keyboard drives
+            bool isDriverLost = false;
+            if (isDeparture && device == driverDevice && !IsKeyboard(device))
             {
-                activeController = null;
-                if (ActiveControllerLost != null)
-                {
-                    ActiveControllerLost();
-                }
+                isDriverLost = true;
+            }
+            if (isDriverLost)
+            {
+                driverDevice = Keyboard.current;
+                isDriverSlotEmpty = true;
+                ApplyDriver();
+            }
+            LogDevices();
+            if (isDriverLost && ActiveControllerLost != null)
+            {
+                ActiveControllerLost();
             }
         }
 
@@ -327,6 +553,17 @@ namespace DriverSim.Game
         }
 
         // ---- low-level helpers (static, no side effects)
+
+        /// <summary>Whether a device counts as the keyboard; a missing device (no keyboard present) does.</summary>
+        /// <param name="device">Device to check; null for none.</param>
+        private static bool IsKeyboard(InputDevice device)
+        {
+            if (device == null)
+            {
+                return true;
+            }
+            return device is Keyboard;
+        }
 
         /// <summary>The reading the robot code should see: Back withheld while Start is held.</summary>
         /// <param name="state">Raw reading.</param>

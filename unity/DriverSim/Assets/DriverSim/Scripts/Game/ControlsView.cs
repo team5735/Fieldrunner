@@ -112,7 +112,7 @@ namespace DriverSim.Game
         /// <summary>Rebuilds the labels and the table from the current bindings and active device.</summary>
         public void Refresh()
         {
-            ControllerFamily family = input.GetActiveFamily();
+            ControllerFamily family = input.GetDriverFamily();
             deviceHeading.text = MakeDeviceHeading(family);
             bool isLeftStickYInverted = input.IsLeftStickYInverted();
             invertToggle.SetValueWithoutNotify(isLeftStickYInverted);

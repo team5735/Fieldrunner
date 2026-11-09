@@ -28,3 +28,8 @@ phase and what changed. Scratch captures live in `_raw/` (git-ignored, ephemeral
 | 21 | In-game HUD with the "Controller connected" toast and the new hotkey line (`--screenshot-menu toast`). |
 | 22 | Title screen after the rename: the game is now called Fieldrunner (window title, title screen, executables); plumbing names stay DriverSim. |
 | 23 | Title screen with a real controller: "Input: Microsoft Xbox One 2015" after the container got the host's /dev/input. |
+| 24 | Phase 3c Controllers screen with the Xbox controller as Driver (large slot on the left) and the keyboard in the middle. |
+| 25 | Controllers screen after Left arrow on the keyboard card: the keyboard took the Driver slot and the Xbox controller dropped to the middle. |
+| 26 | Controllers screen after Right arrow with the keyboard driving: the slot is empty, a dimmed ghost keyboard ("drives if no one takes the slot") shows, both devices sit in the middle. |
+| 27 | Title screen with the new Controllers item and the "Driver: ..." line (was "Input: ..."). |
+| 28 | Pause menu with the new Controllers item between Controls and Options. |

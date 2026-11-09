@@ -76,7 +76,17 @@ the README's controls table).
   `DriverControls.inputactions`, which `DriverControlsBuilder` regenerates from `RobotControlsLayout`). The menus are UI
   Toolkit: layout `Assets/DriverSim/UI/DriverSim.uxml`, style `DriverSim.uss`; `GameFlow` is the state machine and
   `MenuView` only shows screens. `scripts/capture-screenshots.sh` runs the game with `--start-in practice` unless the
-  game args say otherwise; `--screenshot-menu title|station|controls|options|pause|disconnected|toast` opens a screen.
+  game args say otherwise; `--screenshot-menu title|station|controls|controllers|options|pause|disconnected|toast` opens a screen.
+- Driver device: `ControllerInput` has exactly one driver (the keyboard or one controller) and restricts the action
+  asset to it with `actions.devices` (lifted only while a rebind listens, so the rebind hears any device of its
+  scheme). Default incumbent: first gamepad, else a joystick with saved bindings, else the keyboard; a gamepad
+  connecting while the keyboard drives takes the slot, otherwise it only joins the candidates. The Controllers screen
+  (`Game/ControllersView.cs`, `MenuScreen.Controllers`) reads non-driver devices directly (D-pad / stick / arrow
+  keys), because the actions only see the driver; `StepOutDriver` leaves the slot empty with the keyboard driving and
+  `GameFlow` calls `CloseDriverSlot` when the screen closes. Driver loss empties the slot (keyboard drives); GameFlow
+  pauses only during play. On Linux an Xbox pad is a plain `Gamepad` (not `XInputController`), so `ControlLabels`
+  guesses a plain gamepad's family from its display name (cards and button labels). Stick left/right on that screen
+  has hysteresis: a push counts past 0.5 and must come back inside 0.3 before it can count again.
 - Field model node names are `GE-26900: Fuel` etc. (AdvantageScope's Config.json shows sanitized names).
 - `Field/FieldFrame.cs` holds the only field-to-Unity conversion; robot code uses the AndyMark 2026 layout size.
 - The model's driver station acrylic (`FE-00012`) is 20%-opaque gray; the camera looks through it, so FieldSetup hides
@@ -89,7 +99,7 @@ the README's controls table).
 - Controllers in this container: it must mount the host's live `/dev/input` (`-v /dev/input:/dev/input
   --device-cgroup-rule='c 13:* rmw'`). The host's logind `uaccess` ACL then lets the user read the gamepad (same uid
   inside and out), and hot-plugging works. A private `/dev` copy shows the device but unreadable (group 107 only), and
-  the game silently falls back to the keyboard. The title screen's "Input:" line shows what the game is using.
+  the game silently falls back to the keyboard. The title screen's "Driver:" line shows what the game is using.
 - `BuildPlayers` sets each platform's graphics API list (it writes them into ProjectSettings.asset) and builds the Mac
   app universal; `mac` builds need the `mac-mono` module (`unity install-modules -e <version> -m mac-mono`).
 - Stop sims cleanly: killing the robot sim with a signal makes WPILib's native teardown abort (fmt assertion) and dump

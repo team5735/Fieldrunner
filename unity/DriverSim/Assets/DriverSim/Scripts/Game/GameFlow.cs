@@ -7,13 +7,13 @@ using UnityEngine.InputSystem;
 namespace DriverSim.Game
 {
     /// <summary>
-    /// The game's state machine: title, station picker, playing, pause, controls, options and the controller-lost
-    /// screen. It turns menu choices into bridge commands (<c>station</c>, <c>resetPose</c>, <c>start</c>,
-    /// <c>practice</c>, <c>pause</c>, <c>resume</c>, <c>abort</c>, <c>disable</c>), keeps in step with the bridge when
-    /// the game connects mid-session, pauses when the controller disconnects, and handles the back key (Esc, or B on a
-    /// controller) in menus. Command line: <c>--start-in title|practice|match</c> (default title), <c>--station
-    /// &lt;B1..R3&gt;</c>, and <c>--screenshot-menu title|station|controls|options|pause|disconnected|toast</c> to open
-    /// a screen for captures.
+    /// The game's state machine: title, station picker, playing, pause, controls, controllers, options and the
+    /// controller-lost screen. It turns menu choices into bridge commands (<c>station</c>, <c>resetPose</c>,
+    /// <c>start</c>, <c>practice</c>, <c>pause</c>, <c>resume</c>, <c>abort</c>, <c>disable</c>), keeps in step with
+    /// the bridge when the game connects mid-session, pauses when the driver controller disconnects, and handles the
+    /// back key (Esc, or B on a controller) in menus. Command line: <c>--start-in title|practice|match</c> (default
+    /// title), <c>--station &lt;B1..R3&gt;</c>, and <c>--screenshot-menu
+    /// title|station|controls|controllers|options|pause|disconnected|toast</c> to open a screen for captures.
     /// </summary>
     public sealed class GameFlow : MonoBehaviour
     {
@@ -44,6 +44,7 @@ namespace DriverSim.Game
 
         private MenuScreen screen = MenuScreen.Title; // where the player is
         private MenuScreen returnScreen = MenuScreen.Title; // screen the Controls and Options screens go back to
+        private MenuScreen controllersReturnScreen = MenuScreen.Title; // screen the Controllers screen goes back to
         private SessionKind session = SessionKind.None; // what the current play session is
         private SessionKind pendingPick = SessionKind.None; // what the station picker is picking for
         private int station; // the player's driver station, 0..5
@@ -281,6 +282,11 @@ namespace DriverSim.Game
                 hasOpenedCaptureScreen = true;
                 ShowScreen(MenuScreen.ControllerLost);
             }
+            else if (requested == "controllers")
+            {
+                hasOpenedCaptureScreen = true;
+                OpenControllers();
+            }
             else if (requested == "controls" || requested == "options")
             {
                 hasOpenedCaptureScreen = true;
@@ -323,7 +329,7 @@ namespace DriverSim.Game
             {
                 statusText = "robot sim connected";
             }
-            string deviceText = "Input: " + input.GetActiveDeviceName();
+            string deviceText = "Driver: " + input.GetDriverDeviceName();
 
             // notice when the sim GUI owns the controller
             string noticeText = "";
@@ -351,7 +357,7 @@ namespace DriverSim.Game
             {
                 return;
             }
-            if (input.HasGamepad())
+            if (input.IsDriverController())
             {
                 ShowScreen(MenuScreen.Pause);
                 return;
@@ -359,7 +365,6 @@ namespace DriverSim.Game
             Keyboard keyboard = Keyboard.current;
             if (keyboard != null && keyboard.anyKey.wasPressedThisFrame)
             {
-                input.UseKeyboard();
                 ShowScreen(MenuScreen.Pause);
             }
         }
@@ -409,6 +414,10 @@ namespace DriverSim.Game
             {
                 view.SetControlsBanner("");
                 ShowScreen(returnScreen);
+            }
+            else if (screen == MenuScreen.Controllers)
+            {
+                CloseControllers();
             }
         }
 
@@ -479,6 +488,20 @@ namespace DriverSim.Game
             ShowScreen(target);
         }
 
+        /// <summary>Opens the Controllers screen and remembers where to go back to.</summary>
+        private void OpenControllers()
+        {
+            controllersReturnScreen = screen;
+            ShowScreen(MenuScreen.Controllers);
+        }
+
+        /// <summary>Leaves the Controllers screen; an empty driver slot is taken by the keyboard.</summary>
+        private void CloseControllers()
+        {
+            input.CloseDriverSlot();
+            ShowScreen(controllersReturnScreen);
+        }
+
         /// <summary>Does what a menu button says.</summary>
         private void HandleButtonPressed(MenuButton button)
         {
@@ -494,6 +517,9 @@ namespace DriverSim.Game
                     break;
                 case MenuButton.Controls:
                     OpenFromMenu(MenuScreen.Controls);
+                    break;
+                case MenuButton.Controllers:
+                    OpenControllers();
                     break;
                 case MenuButton.Options:
                     OpenFromMenu(MenuScreen.Options);
@@ -521,6 +547,9 @@ namespace DriverSim.Game
                     view.SetControlsBanner("");
                     ShowScreen(returnScreen);
                     break;
+                case MenuButton.ControllersBack:
+                    CloseControllers();
+                    break;
             }
         }
 
@@ -532,15 +561,27 @@ namespace DriverSim.Game
             BeginSession(pendingPick);
         }
 
-        /// <summary>Welcomes a controller with a toast.</summary>
-        private void HandleControllerConnected(string name)
+        /// <summary>Welcomes a controller with a toast; one that did not take the driver slot says how to drive with
+        /// it.</summary>
+        private void HandleControllerConnected(string name, bool isDriver)
         {
-            view.ShowToast("Controller connected: " + name, ToastSeconds);
+            string text = "Controller connected: " + name;
+            if (!isDriver)
+            {
+                text = text + " - open Controllers to drive with it";
+            }
+            view.ShowToast(text, ToastSeconds);
         }
 
-        /// <summary>Pauses at once when the controller in use is unplugged during play.</summary>
+        /// <summary>Pauses at once when the driver controller is unplugged during play; on the Controllers screen
+        /// the slot just stays empty.</summary>
         private void HandleControllerLost()
         {
+            if (screen == MenuScreen.Controllers)
+            {
+                return;
+            }
+            input.CloseDriverSlot();
             if (screen == MenuScreen.None)
             {
                 link.SendCommand("pause");
@@ -560,7 +601,7 @@ namespace DriverSim.Game
             {
                 OpenPause();
             }
-            if (screen == MenuScreen.Title || screen == MenuScreen.Pause)
+            if (screen == MenuScreen.Title || screen == MenuScreen.Pause || screen == MenuScreen.Controllers)
             {
                 view.SetControlsBanner("New controller: bind its inputs (" + name + ")");
                 OpenFromMenu(MenuScreen.Controls);

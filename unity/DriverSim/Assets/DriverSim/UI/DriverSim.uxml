@@ -9,10 +9,11 @@
                 <ui:Button name="btn-start-match" text="Start Match" class="menu-button" />
                 <ui:Button name="btn-free-practice" text="Free Practice" class="menu-button" />
                 <ui:Button name="btn-controls" text="Controls" class="menu-button" />
+                <ui:Button name="btn-controllers" text="Controllers" class="menu-button" />
                 <ui:Button name="btn-options" text="Options" class="menu-button" />
                 <ui:Button name="btn-quit" text="Quit" class="menu-button" />
                 <ui:Label name="title-status" text="waiting for robot sim..." class="status" />
-                <ui:Label name="title-device" text="Input: Keyboard" class="status" />
+                <ui:Label name="title-device" text="Driver: Keyboard" class="status" />
                 <ui:Label name="title-notice" text="" class="notice" />
             </ui:VisualElement>
         </ui:VisualElement>
@@ -41,6 +42,7 @@
                 <ui:Button name="btn-restart-match" text="Restart Match" class="menu-button" />
                 <ui:Button name="btn-reset-robot" text="Reset Robot" class="menu-button" />
                 <ui:Button name="btn-pause-controls" text="Controls" class="menu-button" />
+                <ui:Button name="btn-pause-controllers" text="Controllers" class="menu-button" />
                 <ui:Button name="btn-pause-options" text="Options" class="menu-button" />
                 <ui:Button name="btn-quit-to-title" text="Quit to Title" class="menu-button" />
             </ui:VisualElement>
@@ -73,6 +75,19 @@
             </ui:VisualElement>
         </ui:VisualElement>
 
+        <ui:VisualElement name="screen-controllers" class="screen">
+            <ui:VisualElement class="panel wide">
+                <ui:Label text="Controllers" class="heading" />
+                <ui:VisualElement class="controllers-body">
+                    <ui:VisualElement name="controllers-slot" class="driver-slot" />
+                    <ui:VisualElement name="controllers-middle" class="controllers-middle" />
+                </ui:VisualElement>
+                <ui:Label name="controllers-hint" text="" class="notice" />
+                <ui:Label text="Press LEFT on your controller (Left arrow or A on the keyboard) to drive, RIGHT to step out.  B / Esc: back" class="status" />
+                <ui:Button name="btn-controllers-back" text="Back" class="menu-button small" />
+            </ui:VisualElement>
+        </ui:VisualElement>
+
         <ui:VisualElement name="screen-options" class="screen">
             <ui:VisualElement class="panel">
                 <ui:Label text="Options" class="heading" />
@@ -90,7 +105,7 @@
         <ui:VisualElement name="screen-disconnected" class="screen">
             <ui:VisualElement class="panel">
                 <ui:Label text="Controller disconnected" class="heading" />
-                <ui:Label text="Reconnect it, or press any key to continue with the keyboard." class="message" />
+                <ui:Label text="Reconnect it, press any key to continue with the keyboard, or open Controllers to pick another." class="message" />
             </ui:VisualElement>
         </ui:VisualElement>
 
