@@ -1,0 +1,61 @@
+package driversim;
+
+import com.ctre.phoenix6.SignalLogger;
+import com.revrobotics.util.StatusLogger;
+
+import edu.wpi.first.wpilibj.RobotBase;
+
+import frc.robot.Robot;
+import frc.robot.constants.Constants;
+import frc.robot.constants.robot.CompbotTunerConstants;
+import frc.robot.constants.robot.DevbotTunerConstants;
+
+/**
+ * Entry point for {@code ./gradlew simulateDriverSim}. Builds the robot exactly as {@code frc.robot.Main} does for the
+ * full-robot configurations, then attaches the {@link DriverSimBridge} to the robot's main loop. Set the environment
+ * variable {@code DRIVERSIM_SELFTEST=1} to run the scripted {@link SelfTest} and exit with its result.
+ */
+public final class DriverSimMain {
+    private DriverSimMain() {
+    }
+
+    /**
+     * Starts the robot with the Driver-Sim bridge attached.
+     *
+     * @param args Ignored.
+     */
+    public static void main(String... args) {
+        SignalLogger.enableAutoLogging(false);
+        StatusLogger.disableAutoLogging();
+        RobotBase.startRobot(DriverSimMain::createRobot);
+    }
+
+    /**
+     * Builds the robot for the current configuration and attaches the bridge (and self-test, when requested).
+     *
+     * @return The robot to run.
+     * @throws IllegalStateException When {@code Constants.CURRENT_ROBOT} is not a full-robot configuration.
+     */
+    private static Robot createRobot() {
+        Robot robot = switch (Constants.CURRENT_ROBOT) {
+            case FULL_DEVBOT -> new Robot(DevbotTunerConstants.createDrivetrain(), false);
+            case FULL_COMPBOT -> new Robot(CompbotTunerConstants.createDrivetrain(), false);
+            case DEMO -> new Robot(CompbotTunerConstants.createDrivetrain(), true);
+            default -> throw new IllegalStateException(
+                "Driver-Sim needs a full robot; Constants.CURRENT_ROBOT is " + Constants.CURRENT_ROBOT
+            );
+        };
+
+        // bridge runs on the robot's loop thread, between robot loops
+        DriverSimBridge bridge = new DriverSimBridge(robot);
+        robot.addPeriodic(bridge::update, DriverSimBridge.PERIOD_S);
+
+        // optional scripted self-test
+        String selfTestFlag = System.getenv("DRIVERSIM_SELFTEST");
+        if (selfTestFlag != null && selfTestFlag.equals("1")) {
+            SelfTest selfTest = new SelfTest(robot, bridge);
+            selfTest.schedule();
+        }
+        return robot;
+    }
+}

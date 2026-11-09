@@ -1,0 +1,22 @@
+# Unity (project lives in unity/DriverSim)
+unity/DriverSim/[Ll]ibrary/
+unity/DriverSim/[Tt]emp/
+unity/DriverSim/[Oo]bj/
+unity/DriverSim/[Ll]ogs/
+unity/DriverSim/[Uu]ser[Ss]ettings/
+unity/DriverSim/[Mm]emoryCaptures/
+unity/DriverSim/*.csproj
+unity/DriverSim/*.sln
+unity/DriverSim/*.slnx
+unity/DriverSim/.vs/
+unity/DriverSim/.idea/
+unity/Builds/
+
+# downloaded third-party assets are fetched by scripts, not committed
+unity/DriverSim/Assets/ThirdParty/Downloaded/
+
+# editors / OS
+.vscode/
+.idea/
+*.swp
+.DS_Store

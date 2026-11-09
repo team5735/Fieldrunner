@@ -1,0 +1,145 @@
+// Driver-Sim: driver-training game on top of WPILib simulation.
+//
+// Applied from the robot project's build.gradle with:
+//   if (file('../Driver-Sim/gradle/driversim.gradle').exists()) { apply from: '../Driver-Sim/gradle/driversim.gradle' }
+//
+// Tasks (all in the "driver sim" group):
+//   simulateDriverSim  - robot code + bridge in the normal WPILib sim (sim GUI on), and launches the Unity game.
+//   selfTestDriverSim  - headless scripted check of the bridge against the real robot code; fails the build on error.
+//   testDriverSim      - unit tests for the bridge's pure logic.
+//
+// The bridge (Driver-Sim/bridge) is compiled as its own source set against the robot code; nothing in the robot's
+// src/ changes. When a Driver-Sim run task is requested, GradleRIO's own simulateJavaRelease task is reconfigured to
+// start driversim.DriverSimMain instead of the robot's Main, so WPILib's native libraries and HAL sim extensions are
+// set up exactly as for ./gradlew simulateJava. Plain simulateJava is unaffected.
+
+def driverSimRoot = buildscript.sourceFile.parentFile.parentFile
+
+sourceSets {
+    driverSim {
+        java.srcDir new File(driverSimRoot, 'bridge/src/main/java')
+        compileClasspath += sourceSets.main.output
+        runtimeClasspath += sourceSets.main.output
+    }
+    driverSimTest {
+        java.srcDir new File(driverSimRoot, 'bridge/src/test/java')
+        compileClasspath += sourceSets.main.output + sourceSets.driverSim.output
+        runtimeClasspath += sourceSets.main.output + sourceSets.driverSim.output
+    }
+}
+
+configurations {
+    driverSimImplementation.extendsFrom implementation
+    driverSimRuntimeOnly.extendsFrom runtimeOnly
+    driverSimTestImplementation.extendsFrom implementation, testImplementation
+    driverSimTestRuntimeOnly.extendsFrom runtimeOnly, testRuntimeOnly
+}
+
+tasks.register('testDriverSim', Test) {
+    group = 'driver sim'
+    description = 'Runs the Driver-Sim bridge unit tests.'
+    testClassesDirs = sourceSets.driverSimTest.output.classesDirs
+    classpath = sourceSets.driverSimTest.runtimeClasspath
+    useJUnitPlatform()
+    wpi.java.configureTestTasks(it)
+}
+
+// ---- run tasks: reconfigure GradleRIO's sim task only when a Driver-Sim run task was asked for
+
+def requestedTasks = gradle.startParameter.taskNames.collect { it.tokenize(':').last() }
+def isDriverSimRun = requestedTasks.contains('simulateDriverSim')
+def isDriverSimSelfTest = requestedTasks.contains('selfTestDriverSim')
+
+if (isDriverSimSelfTest) {
+    // headless: the sim GUI would overwrite the self-test's simulated joystick values
+    wpi.sim.halExtensions.configureEach { ext ->
+        if (ext.name.toLowerCase().contains('gui')) {
+            ext.defaultEnabled.set(false)
+        }
+    }
+}
+
+if (isDriverSimRun || isDriverSimSelfTest) {
+    wpi.java.simulationTaskRelease.configure { sim ->
+        dependsOn tasks.named('driverSimClasses')
+        classpath(sourceSets.driverSim.runtimeClasspath)
+        mainClass = 'driversim.DriverSimMain'
+
+        if (isDriverSimSelfTest) {
+            environment 'DRIVERSIM_SELFTEST', '1'
+        }
+
+        if (isDriverSimRun) {
+            // start the Unity game next to the robot sim, and stop it when the sim ends
+            def gameProcess = null
+            doFirst {
+                def game = findDriverSimGame(driverSimRoot)
+                if (game == null) {
+                    logger.lifecycle('[Driver-Sim] Unity game not built yet; running robot sim + bridge only. '
+                            + 'Build it with Driver-Sim/scripts/build-unity.sh, or set DRIVERSIM_GAME to its path.')
+                } else {
+                    logger.lifecycle("[Driver-Sim] starting game: ${game}")
+                    gameProcess = new ProcessBuilder(game.absolutePath).inheritIO().start()
+                }
+            }
+            doLast {
+                if (gameProcess != null) {
+                    gameProcess.destroy()
+                }
+            }
+        }
+    }
+}
+
+tasks.register('simulateDriverSim') {
+    group = 'driver sim'
+    description = 'Runs the robot code in WPILib sim with the Driver-Sim bridge and starts the Unity game.'
+    dependsOn wpi.java.simulationTaskRelease
+}
+
+tasks.register('probeDriverSim', JavaExec) {
+    group = 'driver sim'
+    description = 'Connects to a running Driver-Sim like the game does; prints state and sends commands (-Pargs="...").'
+    def extractNatives = wpi.java.extractNativeReleaseArtifacts
+    dependsOn tasks.named('driverSimClasses'), extractNatives
+    classpath = sourceSets.driverSim.runtimeClasspath
+    mainClass = 'driversim.tools.NtProbe'
+    if (project.hasProperty('args')) {
+        args project.property('args').toString().split(',')
+    }
+    doFirst {
+        def nativesDir = extractNatives.get().destinationDirectory.get().asFile.absolutePath
+        systemProperty 'java.library.path', nativesDir
+        environment 'LD_LIBRARY_PATH', nativesDir
+        environment 'PATH', nativesDir + File.pathSeparator + System.getenv('PATH')
+    }
+}
+
+tasks.register('selfTestDriverSim') {
+    group = 'driver sim'
+    description = 'Headless scripted check that the Driver-Sim bridge makes the robot code work in sim.'
+    dependsOn wpi.java.simulationTaskRelease
+}
+
+/**
+ * Finds the built Unity game: DRIVERSIM_GAME if set, else the platform build under Driver-Sim/unity/Builds.
+ * Returns null when there is none.
+ */
+def findDriverSimGame(File driverSimRoot) {
+    def override = System.getenv('DRIVERSIM_GAME')
+    if (override != null && !override.isEmpty()) {
+        return new File(override)
+    }
+    def os = org.gradle.internal.os.OperatingSystem.current()
+    def relativePath = 'unity/Builds/Linux/DriverSim.x86_64'
+    if (os.isWindows()) {
+        relativePath = 'unity/Builds/Windows/DriverSim.exe'
+    } else if (os.isMacOsX()) {
+        relativePath = 'unity/Builds/Mac/DriverSim.app/Contents/MacOS/DriverSim'
+    }
+    def game = new File(driverSimRoot, relativePath)
+    if (game.exists()) {
+        return game
+    }
+    return null
+}

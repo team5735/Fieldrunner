@@ -1,0 +1,35 @@
+# Driver-Sim — notes for agents
+
+Read README.md first: architecture, tasks, protocol.
+
+## Ground rules
+
+- **Robot code stays unmodified.** The only change in `../FRC-2026` (branch `feature/driver-sim`) is the guarded
+  `apply from` line at the end of `build.gradle`. Anything sim-specific lives here, in `bridge/` or `gradle/`.
+- **Java style follows `../FRC/STYLE.md`** (no ternaries, no streams, records for structured results, units and
+  frames in names, mini-block comments, Javadoc on everything public). Keep source files ASCII-only: the build
+  machine's default encoding is US-ASCII and javac rejects characters like `²` or `θ`.
+- **The bridge runs on the robot's main loop thread** (`TimedRobot.addPeriodic`); never start threads that touch
+  robot objects.
+- **Protocol changes touch both sides**: `game/RobotStateLayout.java` / `MatchStateLayout.java` and their C# mirrors
+  in the Unity project, and bump `GameLink.PROTOCOL_VERSION`.
+
+## Build and verify (from ../FRC-2026)
+
+```bash
+export JAVA_HOME=~/.local/jdk-17 PATH=~/.local/jdk-17/bin:$PATH   # this machine has no system JDK
+./gradlew testDriverSim          # unit tests
+./gradlew selfTestDriverSim      # headless end-to-end check against the real robot code; must print 11/11
+```
+
+Redirect Gradle output to a file and grep it; sim runs are chatty. `simulateDriverSim` opens the sim GUI window on
+the user's display; `probeDriverSim` (see README) checks a running sim from the command line.
+
+## Gotchas
+
+- The self-test's step actions run via `asProxy()`: a test command that required subsystems would be cancelled when a
+  button it presses schedules a robot command needing the same subsystems.
+- The robot code's launch command forces feeding after 1 s (`timeOut > 1`); the self-test checks the
+  `launchCalc/*Check` values before that, so gating is verified on its own merits.
+- `TalonMechanismLink` works in the mechanism frame: sign flips for `Clockwise_Positive` devices happen there, and
+  rotor motion is written as deltas so the robot code's `setPosition` calls (zeroing) keep working.
