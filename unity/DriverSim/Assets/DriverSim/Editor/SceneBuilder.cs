@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using DriverSim.Field;
 using DriverSim.Game;
 using DriverSim.Net;
@@ -22,6 +23,7 @@ namespace DriverSim.Editor
         public const string ScenePath = "Assets/Scenes/DriverSim.unity";
         private const string FieldModelPath = "Assets/ThirdParty/AdvantageScope/Field2026/Field2026.glb";
         private const string RobotMaterialPath = "Assets/DriverSim/Materials/RobotBase.mat";
+        private const string BumpPartNumber = "GE-26100"; // field model nodes of the four bumps start with this
         private const string SampleScenePath = "Assets/Scenes/SampleScene.unity";
 
         /// <summary>Builds and saves the scene, registers it as the only build scene, and sets player settings.</summary>
@@ -55,6 +57,11 @@ namespace DriverSim.Editor
             AssetDatabase.CreateAsset(floorMaterial, "Assets/DriverSim/Materials/ArenaFloor.mat");
             arenaFloor.GetComponent<Renderer>().sharedMaterial = floorMaterial;
 
+            // collision: obstacle colliders from the layout table, and bump surfaces from the field model
+            BuildObstacles();
+            int bumpColliderCount = AddBumpColliders(field.transform);
+            Debug.Log("[Driver-Sim] added " + bumpColliderCount + " bump mesh colliders");
+
             // game objects
             GameObject root = new GameObject("DriverSim");
             DriverSimLink link = root.AddComponent<DriverSimLink>();
@@ -64,7 +71,11 @@ namespace DriverSim.Editor
             robotObject.transform.SetParent(root.transform, false);
             RobotModel robot = robotObject.AddComponent<RobotModel>();
             Material labelMaterial = LoadOrCreateLabelMaterial();
-            robot.SetReferences(link, robotMaterial, labelMaterial);
+            RobotCollision robotCollision = robotObject.AddComponent<RobotCollision>();
+            robotCollision.SetReferences(link);
+            robot.SetReferences(link, robotMaterial, labelMaterial, robotCollision);
+            CollisionSelfTest collisionSelfTest = robotObject.AddComponent<CollisionSelfTest>();
+            collisionSelfTest.SetReferences(robotCollision);
 
             // driver camera
             GameObject cameraObject = new GameObject("DriverCamera");
@@ -84,9 +95,13 @@ namespace DriverSim.Editor
 
             // overlay and controls
             DebugHud hud = root.AddComponent<DebugHud>();
-            hud.SetReferences(link, driverCamera);
+            hud.SetReferences(link, driverCamera, robotCollision, robot);
+            ColliderDebugView colliderView = root.AddComponent<ColliderDebugView>();
+            Material solidDebugMaterial = LoadOrCreateDebugMaterial("ColliderSolid", new Color(0f, 0.9f, 1f, 0.6f));
+            Material lowDebugMaterial = LoadOrCreateDebugMaterial("ColliderLowCeiling", new Color(1f, 0.9f, 0f, 0.6f));
+            colliderView.SetReferences(solidDebugMaterial, lowDebugMaterial);
             GameControls controls = root.AddComponent<GameControls>();
-            controls.SetReferences(link, driverCamera, hud);
+            controls.SetReferences(link, driverCamera, hud, colliderView);
             root.AddComponent<AutoScreenshot>();
 
             // save and register
@@ -99,6 +114,85 @@ namespace DriverSim.Editor
             }
             AssetDatabase.SaveAssets();
             Debug.Log("[Driver-Sim] scene built: " + ScenePath);
+        }
+
+        /// <summary>
+        /// Creates one box collider per obstacle in <see cref="FieldObstacleLayout"/> under a FieldObstacles root, each
+        /// with a <see cref="FieldObstacle"/> carrying its kind. No renderers: the colliders are invisible.
+        /// </summary>
+        private static void BuildObstacles()
+        {
+            GameObject obstaclesRoot = new GameObject("FieldObstacles");
+            List<ObstacleSpec> specs = FieldObstacleLayout.GetAll();
+            foreach (ObstacleSpec spec in specs)
+            {
+                GameObject obstacleObject = new GameObject(spec.Name);
+                obstacleObject.transform.SetParent(obstaclesRoot.transform, false);
+
+                // box from the carpet up, positioned from the field-frame rectangle
+                float heightM = FieldObstacleLayout.ColliderHeightM;
+                obstacleObject.transform.position = FieldFrame.ConvertFieldToWorld(spec.GetCenterXFieldM(),
+                    spec.GetCenterYFieldM(), heightM / 2);
+                BoxCollider boxCollider = obstacleObject.AddComponent<BoxCollider>();
+                boxCollider.size = new Vector3(spec.GetSizeXFieldM(), heightM, spec.GetSizeYFieldM());
+                FieldObstacle obstacle = obstacleObject.AddComponent<FieldObstacle>();
+                obstacle.SetKind(spec.Kind);
+            }
+        }
+
+        /// <summary>
+        /// Adds a mesh collider and a <see cref="BumpSurface"/> marker to every mesh under the field model's bump
+        /// nodes, so the drawn robot can ride over them. Done in edit mode so Unity cooks the colliders at build time.
+        /// </summary>
+        /// <param name="node">Field model node to search, with its children.</param>
+        /// <returns>Number of mesh colliders added.</returns>
+        private static int AddBumpColliders(Transform node)
+        {
+            int added = 0;
+            if (node.name.StartsWith(BumpPartNumber))
+            {
+                MeshFilter[] filters = node.GetComponentsInChildren<MeshFilter>();
+                foreach (MeshFilter filter in filters)
+                {
+                    MeshCollider meshCollider = filter.gameObject.AddComponent<MeshCollider>();
+                    meshCollider.sharedMesh = filter.sharedMesh;
+                    filter.gameObject.AddComponent<BumpSurface>();
+                    added++;
+                }
+                return added;
+            }
+            for (int i = 0; i < node.childCount; i++)
+            {
+                added += AddBumpColliders(node.GetChild(i));
+            }
+            return added;
+        }
+
+        /// <summary>Loads or creates a translucent unlit material for the collider overlay.</summary>
+        /// <param name="materialName">Asset name without extension.</param>
+        /// <param name="color">Base color; alpha is the opacity.</param>
+        private static Material LoadOrCreateDebugMaterial(string materialName, Color color)
+        {
+            string path = "Assets/DriverSim/Materials/" + materialName + ".mat";
+            Material material = AssetDatabase.LoadAssetAtPath<Material>(path);
+            if (material == null)
+            {
+                material = new Material(Shader.Find("Universal Render Pipeline/Unlit"));
+                AssetDatabase.CreateAsset(material, path);
+            }
+
+            // transparent surface with alpha blending, drawn without writing depth
+            material.SetFloat("_Surface", 1);
+            material.SetFloat("_Blend", 0);
+            material.SetFloat("_SrcBlend", (float)BlendMode.SrcAlpha);
+            material.SetFloat("_DstBlend", (float)BlendMode.OneMinusSrcAlpha);
+            material.SetFloat("_ZWrite", 0);
+            material.SetOverrideTag("RenderType", "Transparent");
+            material.EnableKeyword("_SURFACE_TYPE_TRANSPARENT");
+            material.renderQueue = (int)RenderQueue.Transparent;
+            material.SetColor("_BaseColor", color);
+            EditorUtility.SetDirty(material);
+            return material;
         }
 
         /// <summary>Adds arena lighting, ambient light and the post-processing volume to the open scene.</summary>

@@ -23,6 +23,8 @@ namespace DriverSim.Net
         private const int MaxSamples = 64; // robot-state history kept for interpolation
         private const float StaleAfterS = 1f; // seconds without a sample before the robot state counts as stale
         private const int QuitSendWaitMs = 300; // milliseconds to let the quit command go out before exiting
+        private const double TeleportJumpM = 0.5; // a position jump between two samples bigger than this is a reset
+        private const int BatchModeFrameRate = 60; // frames per second when running without a window
 
         [Tooltip("NetworkTables server host; the robot sim runs on this machine by default.")]
         [SerializeField] private string ntHost = "localhost";
@@ -30,7 +32,7 @@ namespace DriverSim.Net
         private readonly List<RobotState> samples = new List<RobotState>(MaxSamples); // newest last
         private Nt4Client client; // NT4 connection; created in Awake
         private int commandPublisher; // /DriverSim/game/command publisher id
-        private int nudgePublisher; // /DriverSim/game/poseNudge publisher id
+        private int correctionPublisher; // /DriverSim/game/poseCorrection publisher id
         private long nextCommandSeq; // sequence number for the next command
         private double localMinusRobotS; // smoothed (local clock - robot clock), seconds
         private bool hasOffset; // localMinusRobotS has been initialized
@@ -39,6 +41,9 @@ namespace DriverSim.Net
         private string bridgeInfo = ""; // bridge protocol string
         private float lastSampleTimeS = -1000; // Time.unscaledTime of the newest robot sample, seconds
         private bool isProtocolMismatch; // bridge speaks a different protocol version
+        private bool hasSaidHello; // hello was sent on the current connection
+        private int correctionCount; // pose corrections sent so far
+        private double lastCorrectionTimestampS = double.NegativeInfinity; // robot clock of the last correction sent
 
         /// <summary>Whether the game is connected to the robot sim's NetworkTables server.</summary>
         public bool IsConnected()
@@ -61,6 +66,12 @@ namespace DriverSim.Net
         public RobotState GetRobotState()
         {
             return robotState;
+        }
+
+        /// <summary>Number of pose corrections sent to the bridge so far.</summary>
+        public int GetCorrectionCount()
+        {
+            return correctionCount;
         }
 
         /// <summary>Newest match state from the bridge.</summary>
@@ -103,19 +114,23 @@ namespace DriverSim.Net
         }
 
         /// <summary>
-        /// Pushes the robot by a small amount, e.g. out of a wall it drove into. Added to the robot's current pose.
+        /// Tells the robot code where the robot should have been at a past instant, after the game resolved collisions.
+        /// The bridge moves the robot code's pose to match. Dropped while disconnected; repeats of the same timestamp
+        /// are not sent.
         /// </summary>
-        /// <param name="dxFieldM">Field-frame x change, meters.</param>
-        /// <param name="dyFieldM">Field-frame y change, meters.</param>
-        /// <param name="dHeadingRad">Heading change, radians, counter-clockwise positive.</param>
-        public void SendPoseNudge(double dxFieldM, double dyFieldM, double dHeadingRad)
+        /// <param name="timestampS">Robot-clock time of the reported state that was resolved, seconds.</param>
+        /// <param name="xFieldM">Constrained robot x, field frame, meters.</param>
+        /// <param name="yFieldM">Constrained robot y, field frame, meters.</param>
+        public void SendPoseCorrection(double timestampS, double xFieldM, double yFieldM)
         {
-            if (client == null)
+            if (client == null || timestampS <= lastCorrectionTimestampS)
             {
                 return;
             }
-            double[] nudge = { dxFieldM, dyFieldM, dHeadingRad };
-            client.SendDoubleArray(nudgePublisher, nudge);
+            lastCorrectionTimestampS = timestampS;
+            correctionCount++;
+            double[] correction = { timestampS, xFieldM, yFieldM };
+            client.SendDoubleArray(correctionPublisher, correction);
         }
 
         // ---- Unity messages
@@ -137,12 +152,21 @@ namespace DriverSim.Net
             client = new Nt4Client(ntHost, NtPort, "DriverSim-game");
             client.SubscribePrefix(Protocol.Prefix, SubscribePeriodS);
             commandPublisher = client.Publish(Protocol.CommandTopic, "string");
-            nudgePublisher = client.Publish(Protocol.PoseNudgeTopic, "double[]");
+            correctionPublisher = client.Publish(Protocol.PoseCorrectionTopic, "double[]");
             client.Start();
+
+            // without a window nothing limits the frame rate
+            if (Application.isBatchMode)
+            {
+                Application.targetFrameRate = BatchModeFrameRate;
+            }
         }
 
         private void Update()
         {
+            // greet the bridge once per connection, after the publications have been announced
+            UpdateHello();
+
             // take everything that arrived since last frame
             while (client.TryDequeue(out Nt4Value update))
             {
@@ -175,6 +199,21 @@ namespace DriverSim.Net
         }
 
         // ---- private stateful helpers
+
+        /// <summary>Sends hello once per connection, as soon as it is up (publications are announced by then).</summary>
+        private void UpdateHello()
+        {
+            if (!client.IsConnected())
+            {
+                hasSaidHello = false;
+                return;
+            }
+            if (!hasSaidHello)
+            {
+                SendCommand("hello");
+                hasSaidHello = true;
+            }
+        }
 
         /// <summary>Routes one received value to the state it updates.</summary>
         private void HandleUpdate(Nt4Value update)
@@ -216,6 +255,7 @@ namespace DriverSim.Net
             {
                 samples.Clear();
                 hasOffset = false;
+                lastCorrectionTimestampS = double.NegativeInfinity;
             }
 
             // keep a bounded history
@@ -271,6 +311,14 @@ namespace DriverSim.Net
                 RobotState later = samples[i];
                 if (renderRobotS >= earlier.TimestampS)
                 {
+                    // a reset (the robot was placed somewhere else) is not motion: never draw the blend
+                    double jumpXM = later.XFieldM - earlier.XFieldM;
+                    double jumpYM = later.YFieldM - earlier.YFieldM;
+                    double jumpM = System.Math.Sqrt(jumpXM * jumpXM + jumpYM * jumpYM);
+                    if (jumpM > TeleportJumpM)
+                    {
+                        return later;
+                    }
                     double spanS = later.TimestampS - earlier.TimestampS;
                     double t = 0;
                     if (spanS > 1e-9)

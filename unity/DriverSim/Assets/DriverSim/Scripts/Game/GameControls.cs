@@ -9,7 +9,7 @@ namespace DriverSim.Game
     /// <summary>
     /// Keyboard controls for running the trainer (the robot itself is driven only through the driver station):
     /// Enter starts a match, Backspace aborts it, 1-6 pick Blue 1-3 / Red 1-3, R puts the robot at its starting spot,
-    /// V switches camera view, [ and ] change the field of view, F1 toggles the debug details, F10 quits.
+    /// V switches camera view, [ and ] change the field of view, F1 toggles the debug details, F2 shows the obstacle colliders, F10 quits.
     /// </summary>
     public sealed class GameControls : MonoBehaviour
     {
@@ -30,15 +30,21 @@ namespace DriverSim.Game
         [Tooltip("Debug overlay to toggle.")]
         [SerializeField] private DebugHud hud;
 
+        [Tooltip("Collider overlay to toggle.")]
+        [SerializeField] private ColliderDebugView colliderView;
+
         /// <summary>Sets the references the controls need; call before the scene starts.</summary>
         /// <param name="driverSimLink">Link to the bridge.</param>
         /// <param name="cameraRig">Driver camera.</param>
         /// <param name="debugHud">Debug overlay.</param>
-        public void SetReferences(DriverSimLink driverSimLink, DriverStationCamera cameraRig, DebugHud debugHud)
+        /// <param name="debugColliderView">Collider overlay.</param>
+        public void SetReferences(DriverSimLink driverSimLink, DriverStationCamera cameraRig, DebugHud debugHud,
+            ColliderDebugView debugColliderView)
         {
             link = driverSimLink;
             driverCamera = cameraRig;
             hud = debugHud;
+            colliderView = debugColliderView;
         }
 
         // ---- Unity messages
@@ -93,6 +99,10 @@ namespace DriverSim.Game
             if (keyboard.f1Key.wasPressedThisFrame && hud != null)
             {
                 hud.ToggleDetails();
+            }
+            if (keyboard.f2Key.wasPressedThisFrame && colliderView != null)
+            {
+                colliderView.Toggle();
             }
             if (keyboard.f10Key.wasPressedThisFrame)
             {

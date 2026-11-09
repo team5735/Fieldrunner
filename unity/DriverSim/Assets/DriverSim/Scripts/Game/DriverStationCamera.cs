@@ -23,7 +23,7 @@ namespace DriverSim.Game
         private const float MinFieldOfViewDeg = 30f; // narrowest allowed vertical field of view, degrees
         private const float MaxFieldOfViewDeg = 100f; // widest allowed vertical field of view, degrees
         private const float OverheadHeightM = 17f; // overhead camera height above the field center, meters
-        private const float OverheadFieldOfViewDeg = 50f; // overhead vertical field of view, degrees
+        private const float OverheadFieldOfViewDeg = 56f; // overhead vertical field of view, degrees
 
         [Tooltip("Link to the bridge; the driver station comes from here.")]
         [SerializeField] private DriverSimLink link;

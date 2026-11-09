@@ -1,19 +1,21 @@
 using DriverSim.Field;
 using DriverSim.Net;
+using DriverSim.Robot;
 using UnityEngine;
 
 namespace DriverSim.Game
 {
     /// <summary>
     /// Plain overlay: match clock and phase across the top, connection and robot details in a corner panel (F1), and
-    /// a one-line key reminder at the bottom. The full game HUD replaces the top bar in a later phase. Layout is in
+    /// a hood warning under the clock while a trench bar blocks the robot, and a one-line key reminder at the bottom. The full game HUD replaces the top bar in a later phase. Layout is in
     /// points of a 900-point-tall virtual screen, scaled to the window.
     /// </summary>
     public sealed class DebugHud : MonoBehaviour
     {
         private const float VirtualHeight = 900f; // virtual screen height the layout is drawn in, points
+        private const string TrenchWarning = "HOOD UP - LOWER IT FOR THE TRENCH";
         private const string KeyHelp =
-            "Enter start match   Backspace abort   1-6 station   R reset robot   V view   [ ] FOV   F1 details   F10 quit";
+            "Enter start match   Backspace abort   1-6 station   R reset robot   V view   [ ] FOV   F1 details   F2 colliders   F10 quit";
 
         [Tooltip("Link to the bridge.")]
         [SerializeField] private DriverSimLink link;
@@ -21,18 +23,30 @@ namespace DriverSim.Game
         [Tooltip("Camera rig, for the current view name.")]
         [SerializeField] private DriverStationCamera driverCamera;
 
+        [Tooltip("Collision resolver, for the warning and the details panel.")]
+        [SerializeField] private RobotCollision collision;
+
+        [Tooltip("Drawn robot, for the bump readout.")]
+        [SerializeField] private RobotModel robotModel;
+
         private bool isDetailVisible = true; // corner panel shown
         private GUIStyle clockStyle; // big match clock; made on the first OnGUI (GUI.skin exists only there)
         private GUIStyle panelStyle; // corner panel text
         private GUIStyle footerStyle; // key reminder
+        private GUIStyle warningStyle; // trench warning
 
         /// <summary>Sets the references the overlay needs; call before the scene starts.</summary>
         /// <param name="driverSimLink">Link to the bridge.</param>
         /// <param name="cameraRig">Driver camera.</param>
-        public void SetReferences(DriverSimLink driverSimLink, DriverStationCamera cameraRig)
+        /// <param name="robotCollision">Collision resolver.</param>
+        /// <param name="model">Drawn robot.</param>
+        public void SetReferences(DriverSimLink driverSimLink, DriverStationCamera cameraRig,
+            RobotCollision robotCollision, RobotModel model)
         {
+            robotModel = model;
             link = driverSimLink;
             driverCamera = cameraRig;
+            collision = robotCollision;
         }
 
         /// <summary>Shows or hides the detail panel.</summary>
@@ -63,6 +77,10 @@ namespace DriverSim.Game
 
             // clock, details, key help
             DrawClock(width);
+            if (collision != null && collision.IsTrenchBlocked())
+            {
+                DrawTrenchWarning(width);
+            }
             if (isDetailVisible)
             {
                 DrawDetails();
@@ -85,6 +103,15 @@ namespace DriverSim.Game
             Rect box = new Rect(width / 2 - 230, 8, 460, 52);
             GUI.Box(box, GUIContent.none);
             GUI.Label(box, clockText, clockStyle);
+        }
+
+        /// <summary>Draws the hood warning centered under the clock.</summary>
+        /// <param name="width">Virtual screen width, points.</param>
+        private void DrawTrenchWarning(float width)
+        {
+            Rect box = new Rect(width / 2 - 300, 66, 600, 40);
+            GUI.Box(box, GUIContent.none);
+            GUI.Label(box, TrenchWarning, warningStyle);
         }
 
         /// <summary>Draws the connection, station, robot and hub details in the top-left corner.</summary>
@@ -125,6 +152,7 @@ namespace DriverSim.Game
             string blueHub = MakeActiveText(match.IsBlueHubActive);
             string redHub = MakeActiveText(match.IsRedHubActive);
 
+            string collisionLine = MakeCollisionLine() + "\n" + MakeBumpLine();
             string text = "Driver-Sim\n"
                 + "robot sim: " + connection + "\n"
                 + mismatch
@@ -132,9 +160,44 @@ namespace DriverSim.Game
                 + robotLine + "\n"
                 + mechanismLine + "\n"
                 + intakeLine + "\n"
+                + collisionLine + "\n"
                 + "hubs: blue " + blueHub + "   red " + redHub;
-            GUI.Box(new Rect(8, 8, 470, 158), GUIContent.none);
-            GUI.Label(new Rect(16, 12, 460, 150), text, panelStyle);
+            GUI.Box(new Rect(8, 8, 470, 198), GUIContent.none);
+            GUI.Label(new Rect(16, 12, 460, 190), text, panelStyle);
+        }
+
+        /// <summary>Collision state and the correction last sent, in one line.</summary>
+        private string MakeCollisionLine()
+        {
+            if (collision == null || !collision.HasConstrainedPose())
+            {
+                return "collision: no robot state";
+            }
+            RobotState robot = link.GetRobotState();
+            string stateText = "clear";
+            if (collision.IsTrenchBlocked())
+            {
+                stateText = "TRENCH BLOCKED";
+            }
+            else if (collision.IsColliding())
+            {
+                stateText = "colliding";
+            }
+            double dxM = collision.GetConstrainedXFieldM() - robot.XFieldM;
+            double dyM = collision.GetConstrainedYFieldM() - robot.YFieldM;
+            return string.Format("collision: {0}  correction ({1:F3}, {2:F3}) m  sent {3}", stateText, dxM, dyM,
+                link.GetCorrectionCount());
+        }
+
+        /// <summary>How the drawn robot is raised and tilted by bumps, in one line.</summary>
+        private string MakeBumpLine()
+        {
+            if (robotModel == null)
+            {
+                return "bump: n/a";
+            }
+            return string.Format("bump: rise {0:F3} m  nose up {1:F1} deg  right up {2:F1} deg",
+                robotModel.GetBumpRiseM(), robotModel.GetBumpNoseUpDeg(), robotModel.GetBumpRightUpDeg());
         }
 
         /// <summary>Makes the overlay's text styles from the current GUI skin.</summary>
@@ -148,6 +211,11 @@ namespace DriverSim.Game
             panelStyle = new GUIStyle(GUI.skin.label);
             panelStyle.fontSize = 15;
             panelStyle.normal.textColor = Color.white;
+            warningStyle = new GUIStyle(GUI.skin.label);
+            warningStyle.fontSize = 24;
+            warningStyle.fontStyle = FontStyle.Bold;
+            warningStyle.alignment = TextAnchor.MiddleCenter;
+            warningStyle.normal.textColor = new Color(1f, 0.85f, 0.1f);
             footerStyle = new GUIStyle(GUI.skin.label);
             footerStyle.fontSize = 14;
             footerStyle.normal.textColor = new Color(1, 1, 1, 0.8f);

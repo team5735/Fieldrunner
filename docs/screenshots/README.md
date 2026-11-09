@@ -15,3 +15,7 @@ phase and what changed. Scratch captures live in `_raw/` (git-ignored, ephemeral
 | 08 | Blue 1 view, camera now faces the center of the field from every station. |
 | 09 | Red 1 view (mirror of Blue 1), after the clean-teardown fix. |
 | 10 | Red 2 view after applying the team style guide to all code: same behavior, clean session teardown. |
+| 11 | Phase 3 collider overlay (`--show-colliders --view overhead`): cyan = Solid, yellow = LowCeiling boxes over the hubs, trench blocks and bars, tower uprights and the perimeter walls on both sides. |
+| 12 | Robot placed with `resetPose` overlapping the blue hub: drawn flush against the hub face; the F1 panel shows the robot code's pose has converged to the same x (3.56) after the game's corrections. |
+| 13 | Robot on the blue right bump (`resetPose 4.25 2.4 0`, Blue 1 view): raised and nosed up while the front wheels climb the near slope; the F1 panel's bump line reads rise 0.076 m, nose up 13.8 deg. |
+| 14 | Robot under the blue right trench bar with the hood down (8 deg): passes through, collision state clear. |

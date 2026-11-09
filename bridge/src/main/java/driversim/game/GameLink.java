@@ -26,21 +26,21 @@ import java.util.List;
  * Game to bridge:
  * <ul>
  * <li>{@code /DriverSim/game/command} (string) - discrete commands, see {@link GameCommand}.</li>
- * <li>{@code /DriverSim/game/poseNudge} (double[3]) - collision push-out {dx, dy, dHeading} in meters/radians, field
- * frame, added to the robot's current pose.</li>
+ * <li>{@code /DriverSim/game/poseCorrection} (double[3]) - {robotTimestampS, xFieldM, yFieldM}: where the robot should
+ * have been at that robot-clock time, after the game resolved collisions; see {@link PoseCorrection}.</li>
  * </ul>
  */
 public final class GameLink {
-    public static final int PROTOCOL_VERSION = 1;       // bump when any topic layout changes
+    public static final int PROTOCOL_VERSION = 2;       // bump when any topic layout changes
     private static final double STATE_PERIOD_S = 0.01;  // seconds between state sends to the game
     private static final int QUEUE_DEPTH = 128;         // game-to-bridge values buffered between reads
     private static final long SEQ_RESTART_GAP = 1000;   // a sequence this far below the last one is a restarted game
 
-    private final DoubleArrayPublisher robotStatePublisher;   // /DriverSim/robot/state
-    private final DoubleArrayPublisher matchStatePublisher;   // /DriverSim/match/state
-    private final StringPublisher infoPublisher;              // /DriverSim/bridge/info
-    private final StringSubscriber commandSubscriber;         // /DriverSim/game/command
-    private final DoubleArraySubscriber poseNudgeSubscriber;  // /DriverSim/game/poseNudge
+    private final DoubleArrayPublisher robotStatePublisher;        // /DriverSim/robot/state
+    private final DoubleArrayPublisher matchStatePublisher;        // /DriverSim/match/state
+    private final StringPublisher infoPublisher;                   // /DriverSim/bridge/info
+    private final StringSubscriber commandSubscriber;              // /DriverSim/game/command
+    private final DoubleArraySubscriber poseCorrectionSubscriber;  // /DriverSim/game/poseCorrection
     private long lastCommandSeq;  // highest command sequence number handled; repeats are dropped
 
     /**
@@ -66,8 +66,8 @@ public final class GameLink {
         // game to bridge
         StringTopic commandTopic = nt.getStringTopic("/DriverSim/game/command");
         commandSubscriber = commandTopic.subscribe("", sendAll, keepDuplicates, queueDepth);
-        DoubleArrayTopic poseNudgeTopic = nt.getDoubleArrayTopic("/DriverSim/game/poseNudge");
-        poseNudgeSubscriber = poseNudgeTopic.subscribe(new double[0], sendAll, keepDuplicates, queueDepth);
+        DoubleArrayTopic poseCorrectionTopic = nt.getDoubleArrayTopic("/DriverSim/game/poseCorrection");
+        poseCorrectionSubscriber = poseCorrectionTopic.subscribe(new double[0], sendAll, keepDuplicates, queueDepth);
 
         infoPublisher.set("DriverSim bridge protocol " + PROTOCOL_VERSION);
         lastCommandSeq = Long.MIN_VALUE;
@@ -115,20 +115,20 @@ public final class GameLink {
     }
 
     /**
-     * Takes and sums every collision push-out the game has sent since the last call.
+     * Takes every pose correction the game has sent since the last call, oldest first, dropping malformed ones.
      *
-     * @return Total push-out; {@link PoseNudge#ZERO} when there are none.
+     * @return New corrections; empty when there are none.
      */
-    public PoseNudge takePoseNudge() {
-        PoseNudge total = PoseNudge.ZERO;
-        double[][] nudges = poseNudgeSubscriber.readQueueValues();
-        for (double[] values : nudges) {
+    public List<PoseCorrection> takePoseCorrections() {
+        List<PoseCorrection> corrections = new ArrayList<>();
+        double[][] queued = poseCorrectionSubscriber.readQueueValues();
+        for (double[] values : queued) {
             if (values.length != 3) {
                 continue;
             }
-            PoseNudge nudge = new PoseNudge(values[0], values[1], values[2]);
-            total = total.plus(nudge);
+            PoseCorrection correction = new PoseCorrection(values[0], values[1], values[2]);
+            corrections.add(correction);
         }
-        return total;
+        return corrections;
     }
 }

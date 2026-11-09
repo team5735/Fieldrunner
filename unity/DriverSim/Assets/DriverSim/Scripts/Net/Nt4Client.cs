@@ -215,8 +215,10 @@ namespace DriverSim.Net
                     {
                         topicNames.Clear();
                     }
-                    isConnected = true;
+                    // announce publications before reporting connected: values sent on a topic the server
+                    // has not seen announced are dropped
                     await SendAnnouncementsAsync(ws, token).ConfigureAwait(false);
+                    isConnected = true;
                     Task timeSync = RunTimeSyncAsync(ws, token);
                     await ReceiveLoopAsync(ws, token).ConfigureAwait(false);
                     await timeSync.ConfigureAwait(false);

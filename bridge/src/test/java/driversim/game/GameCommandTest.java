@@ -16,10 +16,12 @@ class GameCommandTest {
         GameCommand abort = GameCommand.parse("2 abort");
         GameCommand ballLaunched = GameCommand.parse("3 ballLaunched");
         GameCommand quit = GameCommand.parse("7 quit");
+        GameCommand hello = GameCommand.parse("8 hello");
         assertEquals(Verb.START, start.verb());
         assertEquals(Verb.ABORT, abort.verb());
         assertEquals(Verb.BALL_LAUNCHED, ballLaunched.verb());
         assertEquals(Verb.QUIT, quit.verb());
+        assertEquals(Verb.HELLO, hello.verb());
         assertEquals(7, quit.seq());
     }
 

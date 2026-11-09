@@ -15,7 +15,8 @@ import frc.robot.subsystems.DrivetrainSubsystem;
 /**
  * Entry point for {@code ./gradlew simulateDriverSim}. Builds the robot exactly as {@code frc.robot.Main} does for the
  * full-robot configurations, then attaches the {@link DriverSimBridge} to the robot's main loop. Set the environment
- * variable {@code DRIVERSIM_SELFTEST=1} to run the scripted {@link SelfTest} and exit with its result.
+ * variable {@code DRIVERSIM_SELFTEST=1} to run the scripted {@link SelfTest} and exit with its result, or
+ * {@code DRIVERSIM_SELFTEST=with-game} to also check collisions against a running Unity game.
  */
 public final class DriverSimMain {
     private DriverSimMain() { throw new UnsupportedOperationException("This is a utility class!"); }
@@ -65,8 +66,17 @@ public final class DriverSimMain {
 
         // optional scripted self-test
         String selfTestFlag = System.getenv("DRIVERSIM_SELFTEST");
+        boolean isSelfTest = false;
+        boolean isWithGame = false;
         if (selfTestFlag != null && selfTestFlag.equals("1")) {
-            SelfTest selfTest = new SelfTest(robot, bridge);
+            isSelfTest = true;
+        }
+        if (selfTestFlag != null && selfTestFlag.equals("with-game")) {
+            isSelfTest = true;
+            isWithGame = true;
+        }
+        if (isSelfTest) {
+            SelfTest selfTest = new SelfTest(robot, bridge, isWithGame);
             selfTest.schedule();
         }
         return robot;

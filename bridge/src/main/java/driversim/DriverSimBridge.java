@@ -24,14 +24,16 @@ import driversim.game.GameLink;
 import driversim.game.MatchController;
 import driversim.game.MatchStateLayout;
 import driversim.game.MatchStatus;
-import driversim.game.PoseNudge;
+import driversim.game.PoseCorrection;
+import driversim.game.PoseCorrector;
 import driversim.game.RobotStateLayout;
 import driversim.mech.MechanismSnapshot;
 import driversim.mech.RobotMechanismSim;
 
 /**
  * Sim-only glue between the unmodified robot code and the Driver-Sim game. Each {@link #update} it advances the
- * mechanism sim, applies commands from the game (match control, robot placement, collision push-outs), drives the
+ * mechanism sim, applies commands from the game (match control, robot placement) and the game's pose corrections
+ * (collisions), drives the
  * simulated driver station during a match, and publishes robot and match state over NetworkTables.
  *
  * <p>
@@ -49,8 +51,10 @@ public final class DriverSimBridge {
     private final RobotMechanismSim mechanisms;    // every non-drivetrain mechanism
     private final MatchController match;           // field-system timing
     private final GameLink link;                   // NetworkTables topics to the game
+    private final PoseCorrector poseCorrector;     // reconciles the robot pose with the game's corrected poses
     private double lastUpdateS;                    // robot clock at the previous update, seconds
     private boolean wasFieldControlled;            // whether the previous update had a match driving the DS
+    private boolean isGameAttached;                // whether a game has said hello
 
     /**
      * Attaches the bridge to a constructed robot and places the robot at the default start pose.
@@ -63,8 +67,10 @@ public final class DriverSimBridge {
         this.mechanisms = new RobotMechanismSim(robot.spindex);
         this.match = new MatchController(PERIOD_S);
         this.link = new GameLink();
+        this.poseCorrector = new PoseCorrector();
         this.lastUpdateS = Timer.getFPGATimestamp();
         this.wasFieldControlled = false;
+        this.isGameAttached = false;
 
         drivetrain.resetPose(DEFAULT_START_POSE_FIELD);
     }
@@ -80,16 +86,25 @@ public final class DriverSimBridge {
         double batteryVolts = RobotController.getBatteryVoltage();
         mechanisms.update(batteryVolts, dtS);
 
-        // game commands and collision push-outs
+        // game commands
         List<GameCommand> commands = link.takeCommands();
         for (GameCommand command : commands) {
             applyCommand(command, nowS);
         }
-        PoseNudge nudge = link.takePoseNudge();
-        if (!nudge.isZero()) {
-            Pose2d poseField = drivetrain.getState().Pose;
-            Pose2d nudgedPoseField = computeNudgedPose(poseField, nudge);
-            drivetrain.resetPose(nudgedPoseField);
+
+        // collision corrections from the game, reconciled against the pose history
+        Pose2d poseField = drivetrain.getState().Pose;
+        poseCorrector.record(nowS, poseField.getTranslation());
+        List<PoseCorrection> corrections = link.takePoseCorrections();
+        Translation2d totalTranslationField = Translation2d.kZero;
+        for (PoseCorrection correction : corrections) {
+            Translation2d translationField = poseCorrector.computeCorrection(correction);
+            totalTranslationField = totalTranslationField.plus(translationField);
+        }
+        if (totalTranslationField.getNorm() > 0) {
+            Translation2d correctedPositionField = poseField.getTranslation().plus(totalTranslationField);
+            Pose2d correctedPoseField = new Pose2d(correctedPositionField, poseField.getRotation());
+            drivetrain.resetPose(correctedPoseField);
         }
 
         // match timing drives the driver station while a match runs
@@ -140,6 +155,13 @@ public final class DriverSimBridge {
      */
     public MechanismSnapshot getMechanismSnapshot() { return mechanisms.getSnapshot(); }
 
+    /**
+     * Reports whether a game has connected.
+     *
+     * @return True once any game has sent {@code hello}.
+     */
+    public boolean isGameAttached() { return isGameAttached; }
+
     // ---- private stateful helpers
 
     /**
@@ -153,6 +175,7 @@ public final class DriverSimBridge {
         case START -> match.start(nowS);
         case ABORT -> match.abort(nowS);
         case BALL_LAUNCHED -> mechanisms.applyBallLaunched();
+        case HELLO -> isGameAttached = true;
         case AUTO_WINNER -> {
             String winnerText = command.text();
             char winner = winnerText.charAt(0);
@@ -167,6 +190,7 @@ public final class DriverSimBridge {
         case RESET_POSE -> {
             Pose2d poseField = command.poseField();
             drivetrain.resetPose(poseField);
+            poseCorrector.markDiscontinuity(nowS);
         }
         case QUIT -> {
             // end the robot loop and let WPILib shut down in order (it stops the sim GUI, then the HAL, then exits);
@@ -204,21 +228,6 @@ public final class DriverSimBridge {
     }
 
     // ---- low-level helpers (static, no side effects)
-
-    /**
-     * Applies a push-out to a pose.
-     *
-     * @param poseField Current pose, field frame.
-     * @param nudge     Push-out to add.
-     * @return The pushed pose, field frame.
-     */
-    private static Pose2d computeNudgedPose(Pose2d poseField, PoseNudge nudge) {
-        double xMeters = poseField.getX() + nudge.dxFieldMeters();
-        double yMeters = poseField.getY() + nudge.dyFieldMeters();
-        Rotation2d headingChange = new Rotation2d(nudge.dHeadingRadians());
-        Rotation2d heading = poseField.getRotation().plus(headingChange);
-        return new Pose2d(xMeters, yMeters, heading);
-    }
 
     /**
      * Lays out the robot state array for the game.

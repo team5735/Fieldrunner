@@ -6,6 +6,7 @@
 // Tasks (all in the "driver sim" group):
 //   simulateDriverSim  - robot code + bridge in the normal WPILib sim (sim GUI on), and launches the Unity game.
 //   selfTestDriverSim  - headless scripted check of the bridge against the real robot code; fails the build on error.
+//   selfTestDriverSimWithGame - the same plus the built Unity game, checking that its collisions reach the robot code.
 //   testDriverSim      - unit tests for the bridge's pure logic.
 //
 // The bridge (Driver-Sim/bridge) is compiled as its own source set against the robot code; nothing in the robot's
@@ -48,7 +49,8 @@ tasks.register('testDriverSim', Test) {
 
 def requestedTasks = gradle.startParameter.taskNames.collect { it.tokenize(':').last() }
 def isDriverSimRun = requestedTasks.contains('simulateDriverSim')
-def isDriverSimSelfTest = requestedTasks.contains('selfTestDriverSim')
+def isDriverSimSelfTestWithGame = requestedTasks.contains('selfTestDriverSimWithGame')
+def isDriverSimSelfTest = requestedTasks.contains('selfTestDriverSim') || isDriverSimSelfTestWithGame
 
 if (isDriverSimSelfTest) {
     // headless: the sim GUI would overwrite the self-test's simulated joystick values
@@ -68,8 +70,11 @@ if (isDriverSimRun || isDriverSimSelfTest) {
         if (isDriverSimSelfTest) {
             environment 'DRIVERSIM_SELFTEST', '1'
         }
+        if (isDriverSimSelfTestWithGame) {
+            environment 'DRIVERSIM_SELFTEST', 'with-game'
+        }
 
-        if (isDriverSimRun) {
+        if (isDriverSimRun || isDriverSimSelfTestWithGame) {
             // start the Unity game next to the robot sim. The game sends "quit" when it closes, which ends the robot
             // sim with a clean System.exit; stopDriverSimGame kills the game if the sim ends first or fails.
             doFirst {
@@ -80,6 +85,10 @@ if (isDriverSimRun || isDriverSimSelfTest) {
                 } else {
                     // DRIVERSIM_GAME_ARGS: extra space-separated arguments for the game, e.g. "--nt-host 10.57.35.2"
                     def command = [game.absolutePath, '--stop-sim-on-exit']
+                    if (isDriverSimSelfTestWithGame) {
+                        // the self-test ends the sim; no window is needed to check the collisions
+                        command.addAll(['-batchmode', '-nographics'])
+                    }
                     def extraArgs = System.getenv('DRIVERSIM_GAME_ARGS')
                     if (extraArgs != null && !extraArgs.trim().isEmpty()) {
                         command.addAll(extraArgs.trim().split('\\s+'))
@@ -98,6 +107,7 @@ tasks.register('stopDriverSimGame') {
     doLast {
         if (project.ext.has('driverSimGameProcess') && project.ext.driverSimGameProcess.isAlive()) {
             project.ext.driverSimGameProcess.destroy()
+            project.ext.driverSimGameProcess.waitFor(10, java.util.concurrent.TimeUnit.SECONDS)
         }
     }
 }
@@ -124,6 +134,12 @@ tasks.register('probeDriverSim', JavaExec) {
         environment 'LD_LIBRARY_PATH', nativesDir
         environment 'PATH', nativesDir + File.pathSeparator + System.getenv('PATH')
     }
+}
+
+tasks.register('selfTestDriverSimWithGame') {
+    group = 'driver sim'
+    description = 'Headless self-test plus the built Unity game: checks its collisions reach the robot code.'
+    dependsOn wpi.java.simulationTaskRelease
 }
 
 tasks.register('selfTestDriverSim') {

@@ -6,7 +6,8 @@ namespace DriverSim.Robot
 {
     /// <summary>
     /// Stylized 5735 2026 robot built from primitives at startup and posed every frame from the bridge's robot state:
-    /// chassis position and heading, turret yaw, hood angle, intake arm, intake roller spin and climber extension.
+    /// chassis position (as constrained by <see cref="RobotCollision"/>) and heading, rise and tilt over bumps, turret
+    /// yaw, hood angle, intake arm, intake roller spin and climber extension.
     /// Bumpers take the alliance color of the selected driver station.
     ///
     /// Local frame: +Z = robot front (robot x), +X = robot right (robot -y), +Y = up. Part sizes and positions are given
@@ -25,6 +26,9 @@ namespace DriverSim.Robot
         private const float RollerSpinDegPerVoltS = 120f; // drawn roller spin, degrees per volt per second
         private const float ClimberTravelIn = 16f; // inches the drawn inner tube slides at full extension
         private const float LabelOffsetIn = 0.05f; // inches the team number floats off the bumper face
+        private const float BumpRayStartHeightM = 1f; // meters above the carpet the wheel rays start from
+        private const float BumpRayLengthM = 2f; // meters the wheel rays reach downward
+        private const int MaxRayHits = 8; // colliders examined per wheel ray
 
         [Tooltip("Link to the bridge; robot state comes from here.")]
         [SerializeField] private DriverSimLink link;
@@ -35,6 +39,14 @@ namespace DriverSim.Robot
         [Tooltip("DriverSim/DepthTestedText material for the bumper numbers.")]
         [SerializeField] private Material labelMaterial;
 
+        [Tooltip("Collision resolver; the drawn robot sits at its constrained pose. Null draws the reported pose.")]
+        [SerializeField] private RobotCollision collision;
+
+        private readonly RaycastHit[] rayHits = new RaycastHit[MaxRayHits]; // scratch space for wheel rays
+        private Vector3[] wheelLocalPositions; // wheel contact points in body space, meters; front-left first
+        private float bumpRiseM; // meters the body is raised over the carpet by bumps this frame
+        private float bumpNoseUpDeg; // degrees the nose is tipped up this frame (negative: down)
+        private float bumpRightUpDeg; // degrees the right side is raised this frame (negative: lowered)
         private Transform body; // root of the drawn robot, moved to the robot pose
         private Transform turret; // yaws with the turret angle
         private Transform hood; // pitches with the hood angle
@@ -50,11 +62,32 @@ namespace DriverSim.Robot
         /// <param name="driverSimLink">Link to the bridge.</param>
         /// <param name="partMaterial">URP Lit material cloned for every part.</param>
         /// <param name="textMaterial">DriverSim/DepthTestedText material for the bumper numbers.</param>
-        public void SetReferences(DriverSimLink driverSimLink, Material partMaterial, Material textMaterial)
+        /// <param name="robotCollision">Collision resolver that constrains the drawn pose.</param>
+        public void SetReferences(DriverSimLink driverSimLink, Material partMaterial, Material textMaterial,
+            RobotCollision robotCollision)
         {
             link = driverSimLink;
             baseMaterial = partMaterial;
             labelMaterial = textMaterial;
+            collision = robotCollision;
+        }
+
+        /// <summary>How far bumps raised the drawn robot this frame, meters.</summary>
+        public float GetBumpRiseM()
+        {
+            return bumpRiseM;
+        }
+
+        /// <summary>How far bumps tipped the drawn robot's nose up this frame, degrees (negative: down).</summary>
+        public float GetBumpNoseUpDeg()
+        {
+            return bumpNoseUpDeg;
+        }
+
+        /// <summary>How far bumps raised the drawn robot's right side this frame, degrees (negative: lowered).</summary>
+        public float GetBumpRightUpDeg()
+        {
+            return bumpRightUpDeg;
         }
 
         /// <summary>Root transform of the drawn robot, at the robot pose.</summary>
@@ -85,9 +118,20 @@ namespace DriverSim.Robot
             }
             RobotState state = link.GetRobotState();
 
-            // chassis pose
-            body.position = FieldFrame.ConvertFieldToWorld(state.XFieldM, state.YFieldM, 0);
-            body.rotation = FieldFrame.ConvertHeadingToRotation(state.HeadingFieldRad);
+            // chassis pose, constrained by the field's obstacles
+            double xFieldM = state.XFieldM;
+            double yFieldM = state.YFieldM;
+            if (collision != null && collision.HasConstrainedPose())
+            {
+                xFieldM = collision.GetConstrainedXFieldM();
+                yFieldM = collision.GetConstrainedYFieldM();
+            }
+            Quaternion headingRotation = FieldFrame.ConvertHeadingToRotation(state.HeadingFieldRad);
+            body.position = FieldFrame.ConvertFieldToWorld(xFieldM, yFieldM, 0);
+            body.rotation = headingRotation;
+
+            // ride over bumps: raise and tilt the chassis to the surface under the wheels
+            RideBumps(headingRotation);
 
             // mechanisms (robot angles are CCW positive; Unity yaws clockwise)
             float turretDeg = (float)(state.TurretRobotRelRad * Mathf.Rad2Deg);
@@ -111,6 +155,42 @@ namespace DriverSim.Robot
 
         // ---- private stateful helpers
 
+        /// <summary>
+        /// Raises and tilts the body to the bump surface under its four wheels. Where a wheel has no bump below it the
+        /// height is zero. Call with the body already at its flat pose.
+        /// </summary>
+        /// <param name="headingRotation">Body rotation about world up for the current heading.</param>
+        private void RideBumps(Quaternion headingRotation)
+        {
+            // surface height under each wheel (front-left, front-right, back-left, back-right)
+            float[] heights = new float[4];
+            for (int i = 0; i < 4; i++)
+            {
+                Vector3 wheelWorld = body.TransformPoint(wheelLocalPositions[i]);
+                heights[i] = MeasureBumpHeight(wheelWorld);
+            }
+            float frontAverage = (heights[0] + heights[1]) / 2;
+            float backAverage = (heights[2] + heights[3]) / 2;
+            float leftAverage = (heights[0] + heights[2]) / 2;
+            float rightAverage = (heights[1] + heights[3]) / 2;
+            float averageHeight = (frontAverage + backAverage) / 2;
+
+            // nose up when the front wheels are higher; right side up when the right wheels are higher
+            float wheelbaseM = Mathf.Abs(wheelLocalPositions[0].z - wheelLocalPositions[2].z);
+            float trackM = Mathf.Abs(wheelLocalPositions[0].x - wheelLocalPositions[1].x);
+            float noseUpDeg = Mathf.Atan2(frontAverage - backAverage, wheelbaseM) * Mathf.Rad2Deg;
+            float rightUpDeg = Mathf.Atan2(rightAverage - leftAverage, trackM) * Mathf.Rad2Deg;
+
+            // Unity pitches about +X with positive angles tipping the nose down, and rolls about +Z with positive
+            // angles raising the +X (right) side
+            Quaternion tilt = Quaternion.Euler(-noseUpDeg, 0, rightUpDeg);
+            body.position += Vector3.up * averageHeight;
+            body.rotation = headingRotation * tilt;
+            bumpRiseM = averageHeight;
+            bumpNoseUpDeg = noseUpDeg;
+            bumpRightUpDeg = rightUpDeg;
+        }
+
         /// <summary>Builds every robot part under a fresh body transform.</summary>
         private void BuildRobot()
         {
@@ -130,10 +210,19 @@ namespace DriverSim.Robot
             AddBox(body, "Frame", new Vector3(FrameWidthIn, 3, FrameLengthIn), new Vector3(0, 4.5f, 0), frameMat);
             float wheelXIn = FrameWidthIn / 2 - 2.5f;
             float wheelZIn = FrameLengthIn / 2 - 2.5f;
-            AddWheel(new Vector3(wheelXIn, 2, wheelZIn), wheelMat);
             AddWheel(new Vector3(-wheelXIn, 2, wheelZIn), wheelMat);
-            AddWheel(new Vector3(wheelXIn, 2, -wheelZIn), wheelMat);
+            AddWheel(new Vector3(wheelXIn, 2, wheelZIn), wheelMat);
             AddWheel(new Vector3(-wheelXIn, 2, -wheelZIn), wheelMat);
+            AddWheel(new Vector3(wheelXIn, 2, -wheelZIn), wheelMat);
+
+            // wheel contact points on the carpet, for riding over bumps: front-left, front-right, back-left, back-right
+            wheelLocalPositions = new Vector3[]
+            {
+                new Vector3(-wheelXIn, 0, wheelZIn) * InchToMeter,
+                new Vector3(wheelXIn, 0, wheelZIn) * InchToMeter,
+                new Vector3(-wheelXIn, 0, -wheelZIn) * InchToMeter,
+                new Vector3(wheelXIn, 0, -wheelZIn) * InchToMeter,
+            };
 
             // bumpers with team number
             BuildBumpers();
@@ -252,6 +341,29 @@ namespace DriverSim.Robot
             mat.SetColor("_BaseColor", color);
             mat.SetFloat("_Smoothness", smoothness);
             return mat;
+        }
+
+        /// <summary>
+        /// Height of the bump surface under a point: casts a ray straight down from above and keeps only hits on
+        /// <see cref="BumpSurface"/> colliders.
+        /// </summary>
+        /// <param name="pointWorld">Wheel contact point, world space; its height is ignored.</param>
+        /// <returns>Height above the carpet, meters; zero when there is no bump below.</returns>
+        private float MeasureBumpHeight(Vector3 pointWorld)
+        {
+            Vector3 origin = new Vector3(pointWorld.x, BumpRayStartHeightM, pointWorld.z);
+            Ray ray = new Ray(origin, Vector3.down);
+            int count = Physics.RaycastNonAlloc(ray, rayHits, BumpRayLengthM, ~0, QueryTriggerInteraction.Ignore);
+            float height = 0;
+            for (int i = 0; i < count; i++)
+            {
+                BumpSurface bump = rayHits[i].collider.GetComponent<BumpSurface>();
+                if (bump != null && rayHits[i].point.y > height)
+                {
+                    height = rayHits[i].point.y;
+                }
+            }
+            return height;
         }
 
         // ---- low-level helpers (static; each creates and returns a new scene object)

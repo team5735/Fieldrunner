@@ -5,13 +5,13 @@ namespace DriverSim.Net
     /// </summary>
     public static class Protocol
     {
-        public const int Version = 1; // GameLink.PROTOCOL_VERSION; must match the bridge
+        public const int Version = 2; // GameLink.PROTOCOL_VERSION; must match the bridge
         public const string Prefix = "/DriverSim/"; // every Driver-Sim topic starts with this
         public const string RobotStateTopic = "/DriverSim/robot/state"; // double[], bridge to game
         public const string MatchStateTopic = "/DriverSim/match/state"; // double[], bridge to game
         public const string BridgeInfoTopic = "/DriverSim/bridge/info"; // string, bridge to game
         public const string CommandTopic = "/DriverSim/game/command"; // string, game to bridge
-        public const string PoseNudgeTopic = "/DriverSim/game/poseNudge"; // double[3], game to bridge
+        public const string PoseCorrectionTopic = "/DriverSim/game/poseCorrection"; // double[3], game to bridge
     }
 
     /// <summary>

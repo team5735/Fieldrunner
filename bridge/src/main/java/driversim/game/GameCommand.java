@@ -16,6 +16,8 @@ import edu.wpi.first.math.geometry.Rotation2d;
  * <li>{@code autoWinner <R|B>} - report which alliance scored more in autonomous.</li>
  * <li>{@code resetPose <xMeters> <yMeters> <headingRadians>} - place the robot, field frame (wpiBlue origin).</li>
  * <li>{@code ballLaunched} - a ball left the launcher; the flywheel loses some speed.</li>
+ * <li>{@code hello} - the game has connected (sent again after every reconnect); the bridge notes a game is
+ * attached.</li>
  * <li>{@code quit} - the game is closing its session; the robot sim exits cleanly.</li>
  * </ul>
  *
@@ -27,7 +29,7 @@ import edu.wpi.first.math.geometry.Rotation2d;
  */
 public record GameCommand(long seq, Verb verb, String text, Pose2d poseField) {
     /** Command kinds. */
-    public enum Verb { START, ABORT, STATION, AUTO_WINNER, RESET_POSE, BALL_LAUNCHED, QUIT }
+    public enum Verb { START, ABORT, STATION, AUTO_WINNER, RESET_POSE, BALL_LAUNCHED, HELLO, QUIT }
 
     /**
      * Parses one command string.
@@ -64,6 +66,9 @@ public record GameCommand(long seq, Verb verb, String text, Pose2d poseField) {
         }
         if (verbText.equals("ballLaunched") && hasNoArguments) {
             return new GameCommand(seq, Verb.BALL_LAUNCHED, "", null);
+        }
+        if (verbText.equals("hello") && hasNoArguments) {
+            return new GameCommand(seq, Verb.HELLO, "", null);
         }
         if (verbText.equals("quit") && hasNoArguments) {
             return new GameCommand(seq, Verb.QUIT, "", null);

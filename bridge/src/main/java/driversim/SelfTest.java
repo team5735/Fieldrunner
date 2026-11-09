@@ -5,6 +5,7 @@ import static edu.wpi.first.units.Units.RPM;
 
 import edu.wpi.first.hal.AllianceStationID;
 import edu.wpi.first.math.geometry.Pose2d;
+import edu.wpi.first.math.geometry.Rotation2d;
 import edu.wpi.first.units.measure.Angle;
 import edu.wpi.first.units.measure.AngularVelocity;
 import edu.wpi.first.wpilibj.DriverStation;
@@ -28,7 +29,9 @@ import driversim.mech.MechanismSnapshot;
  * Scripted headless check that the bridge makes the real robot code work in sim: the robot enables, the turret zeroes
  * on its hall switch, the intake deploys, the flywheel reaches speed, the hood follows its servo, the climber reaches
  * its switches, the driver's stick drives the robot, the shot-gating checks all pass, and a match starts in
- * autonomous.
+ * autonomous. In with-game mode it then waits for the Unity game to attach and checks that the game's collisions
+ * reach the robot code: walls, hub and trench blocks stop the robot, a raised hood is blocked by the trench bar, and
+ * bumps are drivable.
  *
  * <p>
  * Inputs go through the simulated driver station exactly as the GUI's joysticks would. Run it without the sim GUI
@@ -46,10 +49,26 @@ final class SelfTest {
     private static final double HOOD_TARGET_DEGREES = 30;             // hood test setpoint, degrees
     private static final double HOOD_TOLERANCE_DEGREES = 1.5;         // hood test tolerance, degrees
     private static final double DRIVE_DISTANCE_M = 1.0;               // meters the robot must cover in the drive step
-    private static final double FEEDING_VOLTS = -1;  // spindex feed voltage below this means it is feeding
+    private static final double FEEDING_VOLTS = -1;          // spindex feed voltage below this means it is feeding
+    private static final double GAME_WAIT_S = 30;            // seconds to wait for the game's hello
+    private static final double ROBOT_LENGTH_M = 0.927;      // robot footprint along its x, bumpers included, meters
+    private static final double WALL_TOLERANCE_M = 0.01;     // meters of slack in the collision checks
+    private static final double HUB_FACE_X_M = 4.02;         // field x of the blue hub's near face, meters
+    private static final double TRENCH_BAR_X_M = 4.54;       // field x of the blue trench bar's near face, meters
+    private static final double TRENCH_PASSED_X_M = 5.5;     // field x past the blue trench and bump, meters
+    private static final double HOOD_DOWN_MAX_DEGREES = 10;  // hood counts as lowered below this angle, degrees
+    private static final double SETTLE_S = 0.5;              // seconds to let the robot stop after a drive
+    private static final Pose2d WALL_START_FIELD =
+        new Pose2d(1.2, 2.0, Rotation2d.kZero);  // clear lane to the x = 0 wall
+    private static final Pose2d HUB_START_FIELD = new Pose2d(3.2, 4.02, Rotation2d.kZero);  // in line with the blue hub
+    private static final Pose2d TRENCH_START_FIELD =
+        new Pose2d(3.3, 0.634, Rotation2d.kZero);  // blue right trench lane
+    private static final Pose2d BUMP_START_FIELD =
+        new Pose2d(3.3, 2.4, Rotation2d.kZero);  // in line with the right bump
 
     private final Robot robot;             // robot under test
     private final DriverSimBridge bridge;  // bridge under test
+    private final boolean isWithGame;      // whether a Unity game is attached and its collisions are checked
     private final List<String> results;    // one line per finished step
     private int failureCount;              // steps that failed
     private double driveStartXMeters;      // robot field x at the start of the drive step
@@ -60,10 +79,12 @@ final class SelfTest {
      *
      * @param robot  The robot built by {@link DriverSimMain}.
      * @param bridge The bridge attached to it.
+     * @param isWithGame True when a game is expected to attach, adding the collision steps.
      */
-    SelfTest(Robot robot, DriverSimBridge bridge) {
+    SelfTest(Robot robot, DriverSimBridge bridge, boolean isWithGame) {
         this.robot = robot;
         this.bridge = bridge;
+        this.isWithGame = isWithGame;
         this.results = new ArrayList<>();
         this.failureCount = 0;
         this.driveStartXMeters = 0;
@@ -121,6 +142,11 @@ final class SelfTest {
         steps.add(Commands.runOnce(this::abortMatchNow));
         steps.add(makeStep("match abort disables robot", Commands.none(), DriverStation::isDisabled, 2));
 
+        // with a game attached: its collisions must reach the robot code's pose
+        if (isWithGame) {
+            addCollisionSteps(steps);
+        }
+
         // report and exit
         steps.add(Commands.runOnce(this::finish));
         Command[] stepArray = steps.toArray(new Command[0]);
@@ -130,6 +156,78 @@ final class SelfTest {
     }
 
     // ---- private stateful helpers
+
+    /**
+     * Adds the steps that need the game: it must say hello, then walls, the hub and the trench must stop the robot
+     * and the bump must not.
+     *
+     * @param steps Step list to append to.
+     */
+    private void addCollisionSteps(List<Command> steps) {
+        // the match abort left the robot disabled; the game must have connected
+        steps.add(Commands.runOnce(this::enableTeleopBlue));
+        steps.add(makeStep("game says hello", Commands.none(), bridge::isGameAttached, GAME_WAIT_S));
+
+        // driving back into the alliance wall
+        steps.add(makeDriveStep("wall stops robot", WALL_START_FIELD, 1.0, 2.0, false, this::isFlushWithWall));
+
+        // driving into the hub face
+        steps.add(makeDriveStep("hub blocks robot", HUB_START_FIELD, -1.0, 2.0, false, this::isStoppedByHub));
+
+        // through the trench lane with the hood down
+        steps.add(
+            makeDriveStep("trench passable with hood down", TRENCH_START_FIELD, -1.0, 2.5, false, this::hasPassedTrench)
+        );
+
+        // the trench bar blocks a raised hood
+        steps.add(
+            makeDriveStep("raised hood blocks trench", TRENCH_START_FIELD, -1.0, 2.0, true, this::isStoppedByTrenchBar)
+        );
+
+        // bumps are drivable
+        steps.add(makeDriveStep("bump passable", BUMP_START_FIELD, -1.0, 2.5, false, this::hasPassedTrench));
+    }
+
+    /**
+     * Builds one collision step: waits for the hood to reach the wanted state, places the robot, drives with the left
+     * stick, releases, lets it settle, then checks where it ended up.
+     *
+     * @param name          Step description for the report.
+     * @param startPoseField Where to place the robot, field frame.
+     * @param stickY        Left stick Y axis value; -1 drives downfield on the blue alliance, +1 back toward the wall.
+     * @param driveS        Seconds to hold the stick.
+     * @param isHoodRaised  True to hold the hood at the test angle during the step; false to wait for it to be lowered.
+     * @param check         Pass condition, read after the robot settles.
+     * @return Command for the step.
+     */
+    private Command makeDriveStep(
+        String name, Pose2d startPoseField, double stickY, double driveS, boolean isHoodRaised, BooleanSupplier check
+    ) {
+        // wait for the hood, then place the robot and drive
+        BooleanSupplier isHoodReady = this::isHoodLowered;
+        if (isHoodRaised) {
+            isHoodReady = this::isHoodAtTarget;
+        }
+        Command waitForHood = Commands.waitUntil(isHoodReady).withTimeout(3);
+        Command place = Commands.runOnce(() -> robot.drivetrain.resetPose(startPoseField));
+        Command pushStick = Commands.runOnce(() -> pushLeftStick(stickY));
+        Command drive = Commands.waitSeconds(driveS);
+        Command release = Commands.runOnce(this::releaseSticks);
+        Command settle = Commands.waitSeconds(SETTLE_S);
+        Command script = Commands.sequence(waitForHood, place, pushStick, drive, release, settle);
+
+        // the hood is held by a proxied command so the step itself holds no subsystem requirements
+        Command action = script;
+        if (isHoodRaised) {
+            Command holdHood = robot.hood.run(this::commandHoodToTarget).asProxy();
+            action = Commands.deadline(script, holdHood);
+        }
+        double[] startS = new double[1];  // written by the step's first command, read by its last
+        Command markStart = Commands.runOnce(() -> startS[0] = Timer.getFPGATimestamp());
+        Command reportPose = Commands.runOnce(this::printPose);
+        Command recordStep = Commands.runOnce(() -> recordResult(name, check, startS[0]));
+        return Commands.sequence(markStart, action, reportPose, recordStep);
+    }
 
     /**
      * Builds one test step: runs an action until a check passes or time runs out, then records the result. The action
@@ -191,6 +289,25 @@ final class SelfTest {
         Pose2d poseField = robot.drivetrain.getState().Pose;
         driveStartXMeters = poseField.getX();
         DriverStationSim.setJoystickAxis(DRIVER_PORT, AXIS_LEFT_Y, -1.0);
+        DriverStationSim.notifyNewData();
+    }
+
+    /** Prints where the robot ended up, so a failed collision step shows how far off it was. */
+    private void printPose() {
+        Pose2d poseField = robot.drivetrain.getState().Pose;
+        System.out.println(String.format(
+            "[Driver-Sim self-test]   robot at (%.3f, %.3f) m, %.1f deg", poseField.getX(), poseField.getY(),
+            poseField.getRotation().getDegrees()
+        ));
+    }
+
+    /**
+     * Pushes the left stick along its Y axis.
+     *
+     * @param stickY Axis value, -1 (forward) to +1 (back).
+     */
+    private void pushLeftStick(double stickY) {
+        DriverStationSim.setJoystickAxis(DRIVER_PORT, AXIS_LEFT_Y, stickY);
         DriverStationSim.notifyNewData();
     }
 
@@ -342,5 +459,55 @@ final class SelfTest {
         boolean isAutoEnabled = DriverStation.isAutonomousEnabled();
         boolean isClockRunning = DriverStation.getMatchTime() < MatchController.AUTO_S;
         return isAutoEnabled && isClockRunning;
+    }
+
+    /**
+     * Self-test pass condition.
+     *
+     * @return True when the hood has come down far enough to pass under the trench bar.
+     */
+    private boolean isHoodLowered() {
+        MechanismSnapshot snapshot = bridge.getMechanismSnapshot();
+        return snapshot.hoodAngleDegrees() < HOOD_DOWN_MAX_DEGREES;
+    }
+
+    /**
+     * Self-test pass condition.
+     *
+     * @return True when the robot's bumper rests against the x = 0 wall rather than inside it.
+     */
+    private boolean isFlushWithWall() {
+        Pose2d poseField = robot.drivetrain.getState().Pose;
+        return poseField.getX() >= ROBOT_LENGTH_M / 2 - WALL_TOLERANCE_M;
+    }
+
+    /**
+     * Self-test pass condition.
+     *
+     * @return True when the robot is stopped in front of the blue hub rather than inside it.
+     */
+    private boolean isStoppedByHub() {
+        Pose2d poseField = robot.drivetrain.getState().Pose;
+        return poseField.getX() <= HUB_FACE_X_M - ROBOT_LENGTH_M / 2 + WALL_TOLERANCE_M;
+    }
+
+    /**
+     * Self-test pass condition.
+     *
+     * @return True when the robot is stopped in front of the trench bar rather than under it.
+     */
+    private boolean isStoppedByTrenchBar() {
+        Pose2d poseField = robot.drivetrain.getState().Pose;
+        return poseField.getX() <= TRENCH_BAR_X_M - ROBOT_LENGTH_M / 2 + WALL_TOLERANCE_M;
+    }
+
+    /**
+     * Self-test pass condition.
+     *
+     * @return True when the robot has driven past the blue trench and bump area.
+     */
+    private boolean hasPassedTrench() {
+        Pose2d poseField = robot.drivetrain.getState().Pose;
+        return poseField.getX() > TRENCH_PASSED_X_M;
     }
 }

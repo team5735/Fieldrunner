@@ -34,6 +34,7 @@ Read README.md first: architecture, tasks, protocol. Phase specs live in `docs/s
 export JAVA_HOME=~/.local/jdk-17 PATH=~/.local/jdk-17/bin:$PATH   # this machine has no system JDK
 ./gradlew testDriverSim          # unit tests
 ./gradlew selfTestDriverSim      # headless end-to-end check against the real robot code; must print 11/11
+./gradlew selfTestDriverSimWithGame   # same plus the built Unity game (needs scripts/build-unity.sh linux); must print 17/17
 ```
 
 Redirect Gradle output to a file and grep it; sim runs are chatty. `simulateDriverSim` opens the sim GUI window on
@@ -68,3 +69,27 @@ the user's display; `probeDriverSim` (see README) checks a running sim from the 
 - Scratch captures go to `docs/screenshots/_raw/` (git-ignored; `capture-screenshots.sh <name>` writes there).
   Every meaningful render is copied up to `docs/screenshots/NN-phaseX-what.png` (next number, never overwrite or
   delete) with a line in `docs/screenshots/README.md`; the user follows progress there.
+
+## Collisions (phase 3)
+
+- The game-side obstacle table (`Field/FieldObstacleLayout.cs`) is the only obstacle source; red obstacles are generated
+  by point reflection of the blue ones. `--collision-selftest` checks the layout and `RobotCollision` with no robot sim
+  (batch mode prints to stdout, a windowed run writes the same lines to Player.log).
+- `Physics.ComputePenetration` needs a collider for the robot: `RobotCollision` keeps an 8 m tall trigger box proxy,
+  used only with explicit positions. With a robot-height (0.5 m) box, a deep overlap (a `resetPose` into the hub) picks
+  the vertical exit and the horizontal push is lost. `OverlapBox` needs the `...NonAlloc` variant in this Unity version.
+- `PoseCorrector.record` expects the pose to include the corrections already requested; it treats the rest of a jump as
+  an outside reset and then ignores corrections for older states. Self-test `resetPose` calls (not via the bridge) are
+  caught that way. The drivetrain's pose reflected `resetPose` by the next bridge update in every run so far.
+- A game run with `-batchmode -nographics` (what `selfTestDriverSimWithGame` uses) has no frame cap; `DriverSimLink` caps
+  it at 60 fps in batch mode so the bridge is not flooded.
+- `Nt4Client` reports connected only after it has announced its publications: the NT server drops values sent on a
+  topic it hasn't seen announced (this once made the game's `hello` vanish).
+- WPILib sim sometimes aborts at startup (`fmt/base.h: assertion failed: negative value`, exit 134), seen twice in a row of
+  capture runs. It is intermittent and happens before the bridge does anything; wait a few seconds and retry.
+- Bump surfaces are 160 mesh colliders (every mesh under the `GE-26100` nodes) with a `BumpSurface` marker; wheel rays
+  keep only those hits.
+- A `resetPose` (self-test, R key, auto start) is a teleport: the game never blends render samples across a jump over
+  0.5 m, and `PoseCorrector` ignores corrections stamped within 0.05 s after a pose discontinuity. Without both, a
+  blended state from either side of the jump gets "corrected" and the robot is moved to a wrong place (it showed up as
+  a flaky bump/trench self-test step).
