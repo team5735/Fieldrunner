@@ -76,8 +76,9 @@ the user's display; `probeDriverSim` (see README) checks a running sim from the 
   WPILib's `RobotBase.startRobot` then stops the GUI (`HAL.exitMain`), shuts down the HAL and exits in order.
 - Known: the post-processing volume (tonemapping/contrast) doesn't visibly apply yet.
 - Scratch captures go to `docs/screenshots/_raw/` (git-ignored; `capture-screenshots.sh <name>` writes there).
-  Every meaningful render is copied up to `docs/screenshots/NN-phaseX-what.png` (next number, never overwrite or
-  delete) with a line in `docs/screenshots/README.md`; the user follows progress there.
+  Every meaningful render is copied up to `docs/screenshots/NN-phaseX-what.jpg` (next number, never overwrite or
+  delete) with a line in `docs/screenshots/README.md`; the user follows progress there. Screenshots are JPEG
+  (smaller): the capture script and `--screenshot` write `.jpg`; convert any PNG before adding it.
 
 ## Collisions (phase 3)
 

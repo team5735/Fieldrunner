@@ -3,8 +3,8 @@
 #
 #   scripts/capture-screenshots.sh <name> "<probe args>" [game args...]
 #
-#   name        a bare name goes to docs/screenshots/_raw/<name>_0.png, _1, _2 (git-ignored scratch); a path
-#               ending in .png is used as given. 3 shots, 6 s apart, starting 12 s in.
+#   name        a bare name goes to docs/screenshots/_raw/<name>_0.jpg, _1, _2 (git-ignored scratch); a path
+#               ending in .jpg (or .png) is used as given. 3 shots, 6 s apart, starting 12 s in.
 #   probe args  comma-separated probeDriverSim args, sent one per second once connected,
 #               e.g. "40,station R2,resetPose 12 3 3.14,start"
 #   game args   extra game arguments, e.g. --view overhead
@@ -15,9 +15,9 @@ set -euo pipefail
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 robot="$here/../FRC-2026"
 out="$1"
-if [[ "$out" != *.png ]]; then
+if [[ "$out" != *.jpg && "$out" != *.jpeg && "$out" != *.png ]]; then
     mkdir -p "$here/docs/screenshots/_raw"
-    out="$here/docs/screenshots/_raw/$out.png"
+    out="$here/docs/screenshots/_raw/$out.jpg"
 fi
 probe_args="$2"
 shift 2
@@ -41,4 +41,4 @@ until grep -q "startup complete" "$log"; do
 done
 ./gradlew probeDriverSim -Pargs="$probe_args" --console=plain 2>&1 | grep -E "\[probe\] sent" || true
 wait "$sim_pid" || true
-ls -1 "${out%.png}"_*.png
+ls -1 "${out%.*}"_*."${out##*.}"

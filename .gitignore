@@ -19,5 +19,5 @@ unity/Builds/
 *.swp
 .DS_Store
 
-# scratch captures (ephemeral); curated shots are copied up as NN-phaseX-what.png
+# scratch captures (ephemeral); curated shots are copied up as NN-phaseX-what.jpg
 docs/screenshots/_raw/
