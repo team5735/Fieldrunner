@@ -102,7 +102,7 @@ Unity world = field center origin, X = field x, Z = field y, Y = up (`Field/Fiel
 | Command | What it does |
 |---|---|
 | `./gradlew simulateDriverSim` | Robot code + bridge in WPILib sim with the sim GUI, and starts the Unity game if built. |
-| `./gradlew selfTestDriverSim` | Headless scripted check (turret zero, intake, flywheel, hood, climber, driving, shot gating, match). Fails on any step. |
+| `./gradlew selfTestDriverSim` | Headless scripted check (turret zero, intake, flywheel, hood, climber, driving, shot gating, match). Fails on any step. Also prints a drive-feel measurement (see Drivetrain sim). |
 | `./gradlew selfTestDriverSimWithGame` | The self-test plus the built Unity game (headless): waits for the game's `hello`, then checks walls, hub, trench and bumps against the robot code's pose. 17 steps. |
 | `./gradlew testDriverSim` | Bridge unit tests. |
 | `./gradlew probeDriverSim -Pargs="30,station R1,start"` | While a sim runs: print `/DriverSim` state, send game commands. |
@@ -143,6 +143,25 @@ in flight are not counted twice). While the robot pushes into something, the rob
 Bumps are visual only: the drawn robot rises and tilts over them; the robot code is not told.
 
 Field frame is WPILib's blue-origin frame (x along the field's length from the blue wall, CCW-positive headings).
+
+## Drivetrain sim
+
+The drivetrain is the robot code's own CTRE swerve simulation (`DrivetrainSubsystem.startSimThread`, 5 ms): each
+drive motor spins a simulated inertia under its current limit (the 115 A slip current), and the chassis moves with the
+wheels. There is no separate chassis mass or traction model, so the wheel inertia stands in for the robot's mass:
+`DRIVE_INERTIA` in `CompbotTunerConstants` is the robot mass (56.85 kg, from `CompbotConstants`) times the wheel radius
+squared over 4. Phoenix uses it only in simulation. `selfTestDriverSim` measures the result from rest at full stick
+(teleop default speed 3 m/s):
+
+| | Tuner default (0.01 kg m^2) | Robot mass (0.0367 kg m^2) |
+|---|---|---|
+| Time to 90% of 2.87 m/s | 0.10 s | 0.28 s |
+| Peak acceleration | 32.1 m/s^2 | 12.9 m/s^2 |
+| Peak deceleration (stick released) | 41.3 m/s^2 | 18.6 m/s^2 |
+| Stop time / distance | 0.12 s / 0.12 m | 0.38 s / 0.34 m |
+
+Not modelled: wheel slip (peak braking is slightly above what a carpet of friction coefficient 1-1.5 allows), motor
+rotor inertia, and load when pushing into a wall (Unity stops the robot, but the simulated wheels keep spinning).
 
 ## Mechanism sim notes
 

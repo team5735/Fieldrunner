@@ -128,6 +128,13 @@ final class SelfTest {
         steps.add(Commands.runOnce(this::releaseSticks));
         steps.add(Commands.waitSeconds(0.5));
 
+        // without a game nothing collides: measure how the drivetrain accelerates and stops (report only)
+        if (!isWithGame) {
+            DriveFeelMeasurement driveFeel = new DriveFeelMeasurement(robot.drivetrain);
+            Command measureDriveFeel = driveFeel.makeCommand();
+            steps.add(measureDriveFeel);
+        }
+
         // holding B at range: hood, turret and flywheel checks all pass before the 1 s override would kick in
         steps.add(Commands.runOnce(this::startShootFromDefaultPose));
         steps.add(Commands.waitSeconds(0.5));

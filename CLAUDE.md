@@ -4,8 +4,10 @@ Read README.md first: architecture, tasks, protocol. Phase specs live in `docs/s
 
 ## Ground rules
 
-- **Robot code stays unmodified.** The only change in `../FRC-2026` (branch `feature/driver-sim`) is the guarded
-  `apply from` line at the end of `build.gradle`. Anything sim-specific lives here, in `bridge/` or `gradle/`.
+- **Robot code stays unmodified.** The changes in `../FRC-2026` (branch `feature/driver-sim`) are the guarded
+  `apply from` line at the end of `build.gradle` and one sim-only constant the user approved: `DRIVE_INERTIA` in
+  `CompbotTunerConstants` (0.0367 kg m^2 = robot mass x wheel radius^2 / 4, so the CTRE swerve sim accelerates like the
+  real robot; Phoenix uses it only in simulation). Anything else sim-specific lives here, in `bridge/` or `gradle/`.
 - **All code follows the team style guide, `../FRC/STYLE.md`** (FRC 5735 Control Freaks). Read it before writing
   code here. Java follows it as written and is formatted with `scripts/format.java.sh` (clang-format, the team's
   `.clang-format`, BlockIndent / 120 columns). C# (Unity) and other code follow the same rules, mapped as:
@@ -34,6 +36,7 @@ Read README.md first: architecture, tasks, protocol. Phase specs live in `docs/s
 export JAVA_HOME=~/.local/jdk-17 PATH=~/.local/jdk-17/bin:$PATH   # this machine has no system JDK
 ./gradlew testDriverSim          # unit tests
 ./gradlew selfTestDriverSim      # headless end-to-end check against the real robot code; must print 11/11
+                                 # also prints [Driver-Sim drive-feel] lines (time to speed, accel, stopping)
 ./gradlew selfTestDriverSimWithGame   # same plus the built Unity game (needs scripts/build-unity.sh linux); must print 17/17
 ```
 
