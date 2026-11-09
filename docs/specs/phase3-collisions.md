@@ -1,173 +1,247 @@
-# Phase 3 spec: collisions, trenches and bumps
+# Phase 3 spec: collisions, trenches and bumps (Unity is the world)
 
 Status: ready to implement. Read `CLAUDE.md` (project rules) and `../FRC/STYLE.md` (code style, applies to Java and
-C#) first. Everything here is decided; if something in the code contradicts this spec, stop and report rather than
-improvising.
+C#; C# mapping in CLAUDE.md) first. Everything here is decided; if something in the code contradicts this spec or a
+step turns out impossible, stop and report rather than improvising.
 
 ## Goal
 
-The robot can no longer drive through the field. It stops against the alliance walls, guardrails, hubs, trench
-blocks and tower uprights, slides along them, passes under a trench only with its hood down, and visibly rides over
-the bumps. Arcade feel, not physics: no bouncing, no damage, no robot-robot contact (there are no other robots yet).
+The robot can no longer drive through the field. On screen it stops flush against the alliance walls, guardrails,
+hubs, trench blocks and tower uprights and slides along them; it passes under a trench bar only with its hood down;
+it visibly rides over the bumps. The robot code's own pose (odometry) catches up with what the game shows within about
+one network round trip. Arcade feel, not physics: no bouncing, no damage, no speed change.
 
-## Key decision: resolve collisions in the Java bridge, not in Unity
+## Architecture: Unity owns the world, the robot code syncs to it
 
-The bridge already runs every 5 ms on the robot's main loop. Each update it checks the robot's footprint against a
-fixed list of 2D obstacles and, if they overlap, calls `drivetrain.resetPose(...)` with the pushed-out pose.
+Think of it like an online game. Unity holds the authoritative world and predicts locally; NetworkTables carries
+corrections back to the robot code, which converges.
 
-Why not Unity: a Unity-side push-out (the existing `/DriverSim/game/poseNudge` path) arrives 30-50 ms late, so a robot
-driving into a wall at 3-5 m/s visibly penetrates and jitters by 10-20 cm. In the bridge the worst-case penetration
-per update is `v * 5 ms` (2.5 cm at 5 m/s), which render interpolation hides.
+- The robot code (CTRE swerve sim in Java) still integrates robot motion from the driver's controller. Its pose
+  arrives in Unity ~30-50 ms late through `/DriverSim/robot/state`.
+- Every frame Unity takes that pose (the interpolated `RobotState` it already renders), resolves it against Unity
+  colliders, and **renders the constrained pose immediately**, so the robot never visibly sinks into anything.
+- When the constrained pose differs from the reported one, Unity sends a **pose correction**: the absolute
+  constrained field position plus the robot-clock timestamp of the state it came from.
+- The bridge keeps a short history of its poses and of the corrections it has applied, and applies each correction
+  so the robot code's pose matches what Unity decided **at that timestamp**, without double-counting corrections
+  that are still in flight (algorithm below).
+- Obstacles are Unity colliders. Anything with a collider and a `FieldObstacle` component takes part, so moving
+  obstacles (fuel, other robots) can join later without protocol changes.
+- Accepted cost: while the robot pushes against something, the robot code's pose can sit up to `speed x round trip`
+  (about 10-20 cm at full speed) inside it for a moment. Fine for a trainer.
 
-Keep the `poseNudge` topic and its handling as they are (unused for now; future moving obstacles may need it).
+The relative `/DriverSim/game/poseNudge` topic is removed (its relative deltas double-count while corrections are in
+flight); `poseCorrection` replaces it.
 
 ## Field geometry (field frame, meters, wpiBlue origin)
 
 Extracted from `Assets/ThirdParty/AdvantageScope/Field2026/Field2026.glb` part bounds and cross-checked against the
 robot code's `FieldConstants` (hub center x 4.61, trench center y 0.634, trench ceiling 22.25 in). All obstacles are
-axis-aligned rectangles. Use the robot code's field size so the bridge and robot code agree:
-`L = FieldConstants.FIELD_LENGTH_X` (16.518) and `W = FieldConstants.FIELD_LENGTH_Y` (8.043).
+axis-aligned rectangles in the field frame. `L = 16.518`, `W = 8.043` (already `FieldFrame.FieldLengthM/WidthM`).
 
 ### Perimeter
 
-The robot must stay inside `0 <= x <= L`, `0 <= y <= W` (alliance walls at x = 0 and x = L, guardrails at y = 0 and
+The robot stays inside `0 <= x <= L`, `0 <= y <= W` (alliance walls at x = 0 and x = L, guardrails at y = 0 and
 y = W). Outposts, depots and the tower's wall-mounted parts sit on or behind these lines; the perimeter covers them.
+Build the perimeter as four solid boxes 1 m thick lying just outside these lines, long enough to overlap at corners.
 
 ### Blue-side obstacles
 
 | Name | Kind | x range | y range | Notes |
 |---|---|---|---|---|
-| blue hub | SOLID | 4.02 .. 5.21 | 3.42 .. 4.62 | whole hub base |
-| blue right trench block | SOLID | 4.02 .. 5.21 | 1.27 .. 1.57 | 0.5 m wall between trench lane and bump |
-| blue left trench block | SOLID | 4.02 .. 5.21 | W-1.57 .. W-1.27 | y-mirror of the right one (6.473 .. 6.773) |
-| blue right trench bar | LOW_CEILING | 4.54 .. 4.69 | 0.00 .. 1.27 | bar across the lane, underside 0.57 m |
-| blue left trench bar | LOW_CEILING | 4.54 .. 4.69 | W-1.27 .. W | y-mirror (6.773 .. 8.043) |
-| blue tower upright A | SOLID | 1.01 .. 1.10 | 3.28 .. 3.32 | rungs/braces are above robot height |
-| blue tower upright B | SOLID | 1.01 .. 1.10 | 4.14 .. 4.18 | |
+| blue hub | Solid | 4.02 .. 5.21 | 3.42 .. 4.62 | whole hub base |
+| blue right trench block | Solid | 4.02 .. 5.21 | 1.27 .. 1.57 | 0.5 m wall between trench lane and bump |
+| blue left trench block | Solid | 4.02 .. 5.21 | W-1.57 .. W-1.27 | y-mirror of the right one (6.473 .. 6.773) |
+| blue right trench bar | LowCeiling | 4.54 .. 4.69 | 0.00 .. 1.27 | bar across the lane, underside 0.57 m |
+| blue left trench bar | LowCeiling | 4.54 .. 4.69 | W-1.27 .. W | y-mirror (6.773 .. 8.043) |
+| blue tower upright A | Solid | 1.01 .. 1.10 | 3.28 .. 3.32 | rungs/braces are above robot height |
+| blue tower upright B | Solid | 1.01 .. 1.10 | 4.14 .. 4.18 | |
 
 Not obstacles: bumps (0.17 m ramps, drivable), the tower base plate (0.06 m, drivable), depots (floor level), the
 area under the tower rungs (0.66 m and up; the robot drives in under them to climb).
 
 ### Red-side obstacles
 
-Every blue obstacle has a red twin by point reflection through the field center, the same mapping as the robot
-code's `FieldConstants.redElement`: `x' = L - x`, `y' = W - y` (swap each range's min and max). Do not hand-type red
-coordinates; generate them. Checked against the model: red hub = x 11.31 .. 12.50, y 3.42 .. 4.62.
+Every blue obstacle has a red twin by point reflection through the field center (the robot code's
+`FieldConstants.redElement` mapping): `x' = L - x`, `y' = W - y` (swap each range's min and max). Generate them in
+code; never hand-type red coordinates. Checked against the model: red hub = x 11.31 .. 12.50, y 3.42 .. 4.62.
 
 ### Robot footprint
 
-A rectangle centered on the robot pose: length (robot x) = `drivetrain.constants.getRobotTotalLength()` (36.5 in,
-0.927 m), width (robot y) = `drivetrain.constants.getRobotTotalWidth()` (32 in, 0.813 m), both including bumpers.
-Rotated by the pose heading.
+Rectangle centered on the robot pose: 0.927 m along robot x (36.5 in) by 0.813 m along robot y (32 in), bumpers
+included (from `CompbotConstants.getRobotTotalLength/Width`). Name both as constants with that provenance.
 
-### LOW_CEILING rule (trench bar)
+### LowCeiling rule (trench bar)
 
-A LOW_CEILING obstacle blocks the robot only while the robot is "tall": hood angle above
-`TRENCH_MAX_HOOD_DEG = HoodConstants.LOWEST_ANGLE_DEGREES + 4` (i.e. 12 deg). With the hood down the robot fits under
-the 22.25 in bar. This is a deliberate training rule: drivers must get the hood down before entering a trench (the
-robot code has `HOOD_EXCLUSION_ZONES` for the same reason). Put the threshold in one named constant with that comment.
+A LowCeiling obstacle blocks the robot only while the robot is "tall": hood angle above
+`TrenchMaxHoodDeg = 12` (the robot code's `HoodConstants.LOWEST_ANGLE_DEGREES` of 8, plus 4). With the hood down the
+robot fits under the 22.25 in bar. This is a deliberate training rule (the robot code's `HOOD_EXCLUSION_ZONES` exist
+for the same reason). One named constant, with that comment.
 
-## Collision algorithm (Java, pure, unit-tested)
+## Unity work
 
-Each bridge update, after `mechanisms.update(...)` and after applying game commands, before publishing:
+### Obstacles as colliders
 
-1. `pose = drivetrain.getState().Pose`; `isTall = snapshot.hoodAngleDegrees() > TRENCH_MAX_HOOD_DEG`.
-2. Up to 4 iterations: for each active obstacle (SOLID always; LOW_CEILING only when `isTall`), compute the minimum
-   translation vector (MTV) between the robot's oriented rectangle and the obstacle's axis-aligned rectangle with the
-   separating axis theorem (axes: field x, field y, robot x, robot y). If they overlap, move the robot center by the
-   MTV (pointing from the obstacle toward the robot). Then clamp to the perimeter: for each wall, project the
-   rectangle onto the wall normal and push it back inside. Stop early when an iteration moves nothing.
-3. Heading never changes. If the total correction exceeds 1 mm, `drivetrain.resetPose(correctedPose)`.
-4. Result record: corrected pose, `didCollide` (any correction this update), `isTrenchBlocked` (a LOW_CEILING
-   obstacle produced a correction this update).
+- New C# static class `FieldObstacleLayout` (Field folder): the blue table above as named constants, plus
+  `GetAll()` returning every obstacle (blue, y-mirrored left trench parts, red by reflection, and the four perimeter
+  boxes) as `readonly struct ObstacleSpec { string Name; float MinXFieldM, MaxXFieldM, MinYFieldM, MaxYFieldM;
+  ObstacleKind Kind }`. This table is the only obstacle source.
+- New component `FieldObstacle` with an `ObstacleKind` (`Solid`, `LowCeiling`) and a getter.
+- `SceneBuilder` creates one child GameObject per obstacle under a `FieldObstacles` root: `BoxCollider` sized from the
+  spec (height 0.6 m, bottom at the carpet), positioned with `FieldFrame.ConvertFieldToWorld`, plus a `FieldObstacle`
+  with its kind. No renderer by default.
+- Debug view: F2 (and command-line `--show-colliders`) toggles translucent boxes drawn over every obstacle collider
+  (cyan Solid, yellow LowCeiling), so collider placement can be checked against the field model in screenshots. Add
+  F2 to the key help line.
 
-Penetration depths below 1 mm are ignored so the robot resting against a wall doesn't reset its pose every update.
+### Robot collision and prediction
 
-## Code layout
+- New component `RobotCollision` (Robot folder), run before `RobotModel` each frame (set its script execution order,
+  or have `RobotModel` call it). Input: the link's interpolated `RobotState`. Output: the constrained pose that
+  `RobotModel` renders (`RobotModel` uses it instead of the raw state's x/y; heading is never changed).
+- Algorithm per frame:
+  1. Start at the reported pose. `isTall = HoodDeg > TrenchMaxHoodDeg`.
+  2. Up to 4 iterations: `Physics.OverlapBox` with the robot footprint box (height 0.5 m, at the candidate pose) to
+     find colliders; ignore any without `FieldObstacle`, and LowCeiling ones unless `isTall`. For each,
+     `Physics.ComputePenetration` (robot box vs obstacle collider), drop the vertical component, and move the
+     candidate by direction x distance. Stop early when nothing moved. Ignore penetrations under 1 mm.
+  3. Use a dedicated, collider-less query (box parameters, not a collider on the drawn robot) or a `BoxCollider` on
+     an invisible proxy object; either way the robot must never collide with itself. Call `Physics.SyncTransforms()`
+     before querying if obstacles moved this frame (they don't yet).
+  4. Expose: constrained pose, `IsColliding()` (any correction this frame), `IsTrenchBlocked()` (a LowCeiling
+     obstacle moved the robot this frame).
+- When the correction is at least 1 mm, send it: `link.SendPoseCorrection(state.TimestampS, constrainedXFieldM,
+  constrainedYFieldM)`. Do not send anything while not colliding.
 
-New Java package `driversim.field` in `bridge/src/main/java/driversim/field/`:
+### Bumps (visual only)
 
-- `FieldRectangle` record: `minXMeters, maxXMeters, minYMeters, maxYMeters`, with `reflectThroughCenter(L, W)` and
-  `mirrorAcrossWidth(W)` helpers returning new rectangles.
-- `Obstacle` record: `name`, `FieldRectangle boundsField`, `Kind kind` (enum `SOLID`, `LOW_CEILING`).
-- `FieldObstacles`: builds the immutable obstacle list (blue table above, left trench parts by y-mirror, red by
-  reflection) from `L` and `W` passed in; constants for every blue coordinate with comments naming the field part.
-- `CollisionSolver`: pure. Constructed with obstacles, `L`, `W`, robot length/width. Method
-  `CollisionResult resolve(Pose2d poseField, boolean isTall)`. No WPILib HAL calls (so it unit-tests without JNI).
-- `CollisionResult` record: `Pose2d poseField, boolean didCollide, boolean isTrenchBlocked`.
+- `SceneBuilder` adds a `MeshCollider` (plus a marker component `BumpSurface`) to every mesh under field-model nodes
+  whose names start with `GE-26100` (the four bumps), in edit mode so Unity cooks them at build time. Obstacle queries
+  must ignore them (they have no `FieldObstacle`).
+- `RobotModel.LateUpdate`, after placing the chassis at the constrained pose: raycast straight down from 1 m above
+  each of the four wheel contact points (wheel positions already in `BuildRobot`, transformed to world), keeping only
+  hits on colliders with `BumpSurface`. A miss means height 0. Raise the body by the average height and pitch/roll it
+  from the front-back and left-right differences over the wheelbase/track. Check the direction in a screenshot: the
+  robot noses up while climbing the near side of a bump.
+- If the bump mesh colliders can't be built (e.g. a non-readable mesh error), fall back to an analytic profile from
+  the bump bounds (field x 4.05 .. 5.18 and red twins, peak 0.17 m at the center line) and say so in the report.
+- Visual only: the robot code is not told about bumps; no speed change.
 
-Bridge (`DriverSimBridge`): build the solver in the constructor from `robot.drivetrain.constants`; run it in
-`update()` as above; publish the two flags.
+### HUD
 
-## Protocol change (bump `GameLink.PROTOCOL_VERSION` to 2)
+- When `IsTrenchBlocked()`, show a centered warning "HOOD UP - LOWER IT FOR THE TRENCH" under the clock.
+- Add collision state (colliding / trench blocked) and the latest correction sent to the F1 details panel.
 
-Append to `/DriverSim/robot/state` (Java `RobotStateLayout` and C# `RobotStateLayout` in `Protocol.cs`, kept in sync):
+### Game hello
 
-| Index | Name | Meaning |
-|---|---|---|
-| 18 | `IS_COLLIDING` / `IsColliding` | 1 when the bridge pushed the robot out of something this update |
-| 19 | `IS_TRENCH_BLOCKED` / `IsTrenchBlocked` | 1 when a trench bar blocked the robot because its hood was up |
-| 20 | `LENGTH` | |
+On connecting (and on every reconnect), the game sends the command `hello`. The bridge uses it to know a game is
+attached (needed by the end-to-end self-test).
 
-C# `Protocol.Version = 2`; `RobotState` gains `IsColliding` and `IsTrenchBlocked` (flags come from the later state in
-`Interpolate`). Update `NtProbe` to print both flags. Update the README protocol table.
+### Collision self-check (in the game, no robot sim needed)
 
-## Unity changes
+New component `CollisionSelfTest`, active only with the command-line flag `--collision-selftest`: it feeds synthetic
+poses straight into `RobotCollision` (no network), logs one `[Driver-Sim collision-selftest] PASS|FAIL <name>` line
+per case to the player log, then quits with exit code 0 when all passed, 1 otherwise. Cases:
+- clear of everything: unchanged, not colliding;
+- overlapping the blue hub from the -x side: x ends at `4.02 - 0.927/2` (within 2 mm), y unchanged;
+- 45 deg overlapping the hub corner: no overlap remains;
+- past the x = 0 wall: pushed fully inside;
+- in a corner overlapping two walls: pushed out of both;
+- inside the blue right trench bar footprint with hood 8 deg: unchanged; with hood 30 deg: pushed out and
+  `IsTrenchBlocked()` true;
+- overlapping the red hub mirror case: pushed to `12.50 - ...` mirrored (proves the reflection).
 
-1. **Bumps lift and tilt the robot (visual only).** In `SceneBuilder`, add a `MeshCollider` to every mesh under
-   field-model nodes whose names start with `GE-26100` (the four bumps), in edit mode so Unity cooks them at build
-   time. Nothing else in the scene has colliders (robot parts and the arena floor already remove theirs). In
-   `RobotModel.LateUpdate`, raycast straight down from 1 m above each of the four wheel contact points (wheel
-   positions already in `BuildRobot`, transformed to world after the chassis pose is applied); a hit gives that
-   wheel's ground height, a miss means 0. Raise the body by the average height and pitch/roll it from the front-back
-   and left-right height differences over the wheelbase/track. Verify the tilt direction in a screenshot (the robot
-   should nose up climbing the near side of a bump). If the mesh colliders can't be built (e.g. mesh not readable),
-   fall back to an analytic profile from the bump bounds and say so in the report.
-2. **HUD.** When `IsTrenchBlocked`, show a centered warning "HOOD UP - LOWER IT FOR THE TRENCH" under the clock.
-   Add both flags to the F1 details panel.
-3. No Unity-side collision response; the bridge owns it.
+## Bridge (Java) work
 
-## Tests and acceptance
+### Protocol (bump `GameLink.PROTOCOL_VERSION` and C# `Protocol.Version` to 2)
 
-All of these must pass; report their actual output.
+- Remove `/DriverSim/game/poseNudge`, `PoseNudge`, `GameLink.takePoseNudge` and the bridge's nudge handling; remove
+  the C# `SendPoseNudge` and `PoseNudgeTopic`.
+- Add `/DriverSim/game/poseCorrection` (double[3], game to bridge, send-all, keep-duplicates, queued like the old
+  nudge topic): `{robotTimestampS, xFieldM, yFieldM}` = where the robot should have been at that robot-clock time.
+  C# `DriverSimLink.SendPoseCorrection(timestampS, xFieldM, yFieldM)`.
+- Add the `hello` verb to `GameCommand` (no arguments).
+- No change to the robot-state array layout.
+- Update the README protocol table and NtProbe (it may print the last correction applied; optional).
 
-1. **Unit tests** (`bridge/src/test/java/driversim/field/`), at minimum:
-   - robot clear of everything: unchanged pose, `didCollide` false;
-   - robot overlapping the blue hub from the -x side: pushed to `x = 4.02 - length/2` (within 1 mm), y unchanged;
-   - robot at 45 deg overlapping the hub corner: no overlap remains afterwards;
-   - robot past the x = 0 wall: pushed so its rearmost corner is at x = 0;
-   - robot in a corner overlapping two walls: pushed out of both;
-   - trench bar: overlap ignored when not tall, resolved and `isTrenchBlocked` true when tall;
-   - red obstacles are exact point reflections of blue ones (check the hub and one trench block);
-   - sub-millimeter overlap: pose unchanged, `didCollide` false.
-2. **Self-test** (`SelfTest.java`), new steps after the existing ones, driving with the left stick exactly as the
-   existing drive step does (blue alliance, field-centric: stick forward = +x). Place the robot with
-   `drivetrain.resetPose` first. Each step releases the stick at the end.
-   - "wall stops robot": start (1.2, 2.0, 0 deg), stick back (+1 on left Y) 2 s; pass if x >= length/2 - 0.03.
-   - "hub blocks robot": start (3.2, 4.02, 0), stick forward 2 s; pass if x <= 4.02 - length/2 + 0.03.
-   - "trench passable with hood down": start (3.3, 0.634, 0), forward 2.5 s; pass if x > 5.5.
-   - "raised hood blocks trench": hood held at 30 deg (as in the hood step), start (3.3, 0.634, 0), forward 2 s;
-     pass if x <= 4.54 - length/2 + 0.03 and the bridge's last result reported `isTrenchBlocked`.
-   - "bump passable": start (3.3, 2.4, 0), forward 2.5 s; pass if x > 5.5.
-   The final line must read `[Driver-Sim self-test] 16/16 steps passed`.
-3. **Screenshots** with `scripts/capture-screenshots.sh` (Unity rebuilt first with `scripts/build-unity.sh`):
-   robot placed overlapping the blue hub (it should appear pushed flush against the hub face), robot on a bump
-   (visibly raised and tilted), robot in a trench lane with the hood down. Look at each PNG before keeping it; copy
-   good ones to `docs/screenshots/` as the next numbers (`11-phase3-...png`, ...) with a line each in
-   `docs/screenshots/README.md`. Never overwrite or delete existing screenshots.
-4. `./gradlew testDriverSim selfTestDriverSim` from FRC-2026 is green; Java formatted with clang-format; Unity build
-   has no `warning CS` in DriverSim code.
+### Pose reconciliation (pure Java, unit-tested): `driversim.game.PoseCorrector`
+
+Carries its own history (say so in its Javadoc). State: a ring buffer of the last 2 s of
+`(robotTimestampS, poseField, offsetField)` samples recorded once per bridge update, where `offsetField` is the
+cumulative translation the bridge has applied through corrections so far; the current offset; the timestamp of the
+last correction applied; the time of the last pose discontinuity.
+
+- `record(timestampS, poseField)`: append a sample with the current offset. If the pose jumped further than
+  `MAX_PLAUSIBLE_SPEED_MPS (8) x dt` since the previous sample, treat it as an outside reset (robot code, a
+  `resetPose` command, an auto starting) and remember its time.
+- `computeCorrection(PoseCorrection correction)` -> the translation to apply now (possibly zero):
+  1. Ignore it if its timestamp is not newer than the last applied correction's, older than the last discontinuity,
+     or outside the history.
+  2. Interpolate the history at the correction's timestamp: `poseThen`, `offsetThen`. The raw (never-corrected)
+     position then was `rawThen = poseThen - offsetThen`.
+  3. The offset Unity wants is `neededOffset = correctedThen - rawThen`. The translation to apply now is
+     `neededOffset - currentOffset`; drop it if under 1 mm.
+  4. On a non-zero result, set `currentOffset = neededOffset` and remember the timestamp.
+  Setting the offset absolutely (not adding deltas) is what prevents double counting: later corrections computed from
+  older, still-uncorrected poses yield the same needed offset plus only the robot's additional push.
+- Bridge `update()`: after commands, `record(now, pose)`; take every queued correction (newest last); for each
+  non-zero result, `resetPose(currentPose + translation)` (heading unchanged). Also record discontinuities caused by
+  the bridge's own `resetPose` command handling.
+
+Unit tests (`bridge/src/test/java/driversim/game/PoseCorrectorTest.java`), at minimum:
+- a single correction moves the pose to the corrected position;
+- a robot pushing steadily into a wall with corrections arriving 40 ms late converges to the wall without
+  overshooting (simulate: raw x decreases at 3 m/s; each correction says "x >= 0.4635" for a state 40 ms old);
+- a stale correction (timestamp older than the last applied) is ignored;
+- a correction from before an outside reset is ignored;
+- sub-millimeter corrections are ignored.
+
+### Self-test
+
+- Plain `./gradlew selfTestDriverSim` (no game) stays 11 steps and must still pass.
+- New Gradle task `selfTestDriverSimWithGame`: same headless robot sim (no sim GUI), plus it launches the built game
+  with `--stop-sim-on-exit` (reuse the `simulateDriverSim` launch code and the `stopDriverSimGame` finalizer), and sets
+  `DRIVERSIM_SELFTEST=with-game`. In that mode, after the existing 11 steps, `SelfTest` waits up to 30 s for the
+  game's `hello` (fail the step if it never comes), then runs, driving with the left stick exactly as the existing
+  drive step does (blue alliance, field-centric: stick forward = +x), placing the robot with `drivetrain.resetPose`
+  first and releasing the stick at the end of each:
+  - "wall stops robot": start (1.2, 2.0, 0 deg), stick back (+1 on left Y) 2 s, release, settle 0.5 s; pass if
+    x >= 0.927/2 - 0.01.
+  - "hub blocks robot": start (3.2, 4.02, 0), forward 2 s, release, settle 0.5 s; pass if x <= 4.02 - 0.927/2 + 0.01.
+  - "trench passable with hood down": start (3.3, 0.634, 0), forward 2.5 s; pass if x > 5.5.
+  - "raised hood blocks trench": hood held at 30 deg (as in the hood step), start (3.3, 0.634, 0), forward 2 s,
+    release, settle 0.5 s; pass if x <= 4.54 - 0.927/2 + 0.01.
+  - "bump passable": start (3.3, 2.4, 0), forward 2.5 s; pass if x > 5.5.
+  The run must end with `[Driver-Sim self-test] 17/17 steps passed` (11 + hello + 5), exit cleanly, and leave no
+  game process behind.
+
+## Acceptance (report actual output for each)
+
+1. `./gradlew testDriverSim` green (including the new PoseCorrector tests).
+2. `./gradlew selfTestDriverSim` -> 11/11.
+3. `scripts/build-unity.sh linux` succeeds with no `warning CS` in DriverSim code.
+4. `unity/Builds/Linux/DriverSim.x86_64 --collision-selftest` exits 0 with every case PASS in the player log.
+5. `./gradlew selfTestDriverSimWithGame` -> 17/17, clean exit, no leftover processes, no new core/hs_err files.
+6. Screenshots via `scripts/capture-screenshots.sh` (read each PNG before keeping it), copied to `docs/screenshots/`
+   as the next numbers (`11-phase3-...`) with a line each in `docs/screenshots/README.md`:
+   - `--show-colliders` overhead view (`--view overhead`): collider boxes line up with the hubs, trench blocks/bars,
+     tower uprights and walls on both sides;
+   - robot placed overlapping the blue hub (`resetPose` into it): drawn flush against the hub face, and the F1 panel
+     shows the bridge pose has converged to the same x;
+   - robot on a bump: visibly raised and tilted the right way;
+   - robot in a trench lane with the hood down.
+7. Java formatted with clang-format; README (status table: phase 3 done; protocol table) and CLAUDE.md (gotchas you
+   learned) updated.
 
 ## Constraints
 
-- Follow `../FRC/STYLE.md` in all code (see the C# mapping in CLAUDE.md). ASCII-only source.
+- Follow `../FRC/STYLE.md` in all code (C# mapping in CLAUDE.md). ASCII-only source.
 - No changes to FRC-2026 (the robot code). Everything lives in Driver-Sim.
-- Keep `FieldFrame.cs` as the only field-to-Unity conversion; keep the Java obstacle table as the only obstacle source.
-- Stop sims cleanly (the game's quit / `robot.endCompetition()`); never kill them with signals. Run one sim at a time.
-- Update README (status table: phase 3 done, protocol table) and CLAUDE.md gotchas if you learn something non-obvious.
+- `FieldFrame.cs` stays the only field-to-Unity conversion; `FieldObstacleLayout` is the only obstacle source.
+- Stop sims cleanly (game quit / `robot.endCompetition()`); never kill them with signals. One sim at a time.
 - Do not commit. Leave changes in the working tree for review.
 
 ## Out of scope
 
-Fuel, intake/shooting gameplay, scoring (phase 4); other robots; climbing physics; robot-height effects other than the
-trench bar; changing drive speed on bumps.
+Fuel, intake/shooting gameplay, scoring (phase 4); other robots; climbing physics; bump effects on the robot code
+(speed, gyro pitch); changing drive speed anywhere.
