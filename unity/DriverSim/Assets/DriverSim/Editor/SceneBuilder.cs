@@ -107,8 +107,9 @@ namespace DriverSim.Editor
 
             // overlay and controls
             FrameRateLog frameRateLog = root.AddComponent<FrameRateLog>();
+            RenderScaleCap renderScaleCap = root.AddComponent<RenderScaleCap>();
             DebugHud hud = root.AddComponent<DebugHud>();
-            hud.SetReferences(link, driverCamera, robotCollision, robot, frameRateLog);
+            hud.SetReferences(link, driverCamera, robotCollision, robot, frameRateLog, renderScaleCap);
             ColliderDebugView colliderView = root.AddComponent<ColliderDebugView>();
             Material solidDebugMaterial = LoadOrCreateDebugMaterial("ColliderSolid", new Color(0f, 0.9f, 1f, 0.6f));
             Material lowDebugMaterial = LoadOrCreateDebugMaterial("ColliderLowCeiling", new Color(1f, 0.9f, 0f, 0.6f));

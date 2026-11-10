@@ -34,6 +34,9 @@ namespace DriverSim.Game
         [Tooltip("Frame timing, for the performance line.")]
         [SerializeField] private FrameRateLog frameRate;
 
+        [Tooltip("Render resolution cap, for the performance line.")]
+        [SerializeField] private RenderScaleCap renderScale;
+
         private bool isVisible = true; // overlay shown at all; false while a menu screen is open
         private bool isDetailVisible = true; // corner panel shown
         private GUIStyle clockStyle; // big match clock; made on the first OnGUI (GUI.skin exists only there)
@@ -47,9 +50,11 @@ namespace DriverSim.Game
         /// <param name="robotCollision">Collision resolver.</param>
         /// <param name="model">Drawn robot.</param>
         /// <param name="frameRateLog">Frame timing.</param>
+        /// <param name="renderScaleCap">Render resolution cap.</param>
         public void SetReferences(DriverSimLink driverSimLink, DriverStationCamera cameraRig,
-            RobotCollision robotCollision, RobotModel model, FrameRateLog frameRateLog)
+            RobotCollision robotCollision, RobotModel model, FrameRateLog frameRateLog, RenderScaleCap renderScaleCap)
         {
+            renderScale = renderScaleCap;
             robotModel = model;
             frameRate = frameRateLog;
             link = driverSimLink;
@@ -176,8 +181,12 @@ namespace DriverSim.Game
             string redHub = MakeActiveText(match.IsRedHubActive);
 
             // performance: frame rate and the share of each frame the cpu and gpu spend working
-            string performanceLine = string.Format("frame rate {0:F0} fps  cpu {1:F0}%  gpu {2:F0}%",
-                frameRate.GetFramesPerS(), frameRate.GetCpuPercent(), frameRate.GetGpuPercent());
+            float scale = renderScale.GetRenderScale();
+            int renderWidth = Mathf.RoundToInt(Screen.width * scale);
+            int renderHeight = Mathf.RoundToInt(Screen.height * scale);
+            string performanceLine = string.Format("frame rate {0:F0} fps  cpu {1:F0}%  gpu {2:F0}%  render {3}x{4}",
+                frameRate.GetFramesPerS(), frameRate.GetCpuPercent(), frameRate.GetGpuPercent(), renderWidth,
+                renderHeight);
 
             string collisionLine = MakeCollisionLine() + "\n" + MakeBumpLine();
             string text = "Fieldrunner\n"

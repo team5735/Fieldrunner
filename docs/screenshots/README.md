@@ -33,3 +33,4 @@ phase and what changed. Scratch captures live in `_raw/` (git-ignored, ephemeral
 | 26 | Controllers screen after Right arrow with the keyboard driving: the slot is empty, a dimmed ghost keyboard ("drives if no one takes the slot") shows, both devices sit in the middle. |
 | 27 | Title screen with the new Controllers item and the "Driver: ..." line (was "Input: ..."). |
 | 28 | Pause menu with the new Controllers item between Controls and Options. |
+| 29 | Performance work: a 3700x2032 window rendered at 1943x1067 and upscaled with FSR; the HUD's new line shows frame rate, cpu/gpu share of the frame and the render size. |
