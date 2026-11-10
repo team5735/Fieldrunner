@@ -35,10 +35,12 @@ import driversim.InputOwner;
  * {@link PoseCorrection}.</li>
  * <li>{@code /DriverSim/game/joystick0} (double[8]) - the virtual Xbox controller on driver station port 0; see
  * {@link JoystickSample}.</li>
+ * <li>{@code /DriverSim/game/state} (double[]) - hopper, scores and field fuel; layout in {@link GameStateLayout}. The
+ * bridge only reads it.</li>
  * </ul>
  */
 public final class GameLink {
-    public static final int PROTOCOL_VERSION = 5;       // bump when any topic layout changes
+    public static final int PROTOCOL_VERSION = 6;       // bump when any topic layout changes
     private static final double STATE_PERIOD_S = 0.01;  // seconds between state sends to the game
     private static final int QUEUE_DEPTH = 128;         // game-to-bridge values buffered between reads
     private static final long SEQ_RESTART_GAP = 1000;   // a sequence this far below the last one is a restarted game
@@ -50,6 +52,7 @@ public final class GameLink {
     private final StringSubscriber commandSubscriber;              // /DriverSim/game/command
     private final DoubleArraySubscriber poseCorrectionSubscriber;  // /DriverSim/game/poseCorrection
     private final DoubleArraySubscriber joystickSubscriber;        // /DriverSim/game/joystick0
+    private final DoubleArraySubscriber gameStateSubscriber;       // /DriverSim/game/state
     private long lastCommandSeq;  // highest command sequence number handled; repeats are dropped
 
     /**
@@ -84,6 +87,8 @@ public final class GameLink {
 
         DoubleArrayTopic joystickTopic = nt.getDoubleArrayTopic("/DriverSim/game/joystick0");
         joystickSubscriber = joystickTopic.subscribe(new double[0], sendAll, keepDuplicates, queueDepth);
+        DoubleArrayTopic gameStateTopic = nt.getDoubleArrayTopic("/DriverSim/game/state");
+        gameStateSubscriber = gameStateTopic.subscribe(new double[0]);
 
         // announce the protocol and the input owner; start with no rumble
         String ownerName = inputOwner.getWireName();
@@ -159,6 +164,16 @@ public final class GameLink {
             corrections.add(correction);
         }
         return corrections;
+    }
+
+    /**
+     * Reads the newest fuel and score state the game has published.
+     *
+     * @return The state, or null when the game has not published one (or speaks another protocol version).
+     */
+    public GameState getGameState() {
+        double[] values = gameStateSubscriber.get();
+        return GameState.parse(values);
     }
 
     /**

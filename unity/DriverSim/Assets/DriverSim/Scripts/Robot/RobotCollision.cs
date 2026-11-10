@@ -1,4 +1,5 @@
 using DriverSim.Field;
+using DriverSim.Game;
 using DriverSim.Net;
 using UnityEngine;
 
@@ -162,8 +163,8 @@ namespace DriverSim.Robot
                 Vector3 queryCenter = FieldFrame.ConvertFieldToWorld(candidateXFieldM, candidateYFieldM,
                     QueryHeightM / 2);
                 Vector3 queryHalfExtents = new Vector3(FootprintWidthM / 2, QueryHeightM / 2, FootprintLengthM / 2);
-                int count = Physics.OverlapBoxNonAlloc(queryCenter, queryHalfExtents, overlaps, rotation, ~0,
-                    QueryTriggerInteraction.Ignore);
+                int count = Physics.OverlapBoxNonAlloc(queryCenter, queryHalfExtents, overlaps, rotation,
+                    GameLayers.GetRobotQueryMask(), QueryTriggerInteraction.Ignore);
 
                 // measure and apply each push against the proxy at the current candidate
                 bool hasMoved = false;
@@ -259,8 +260,8 @@ namespace DriverSim.Robot
             Quaternion rotation = FieldFrame.ConvertHeadingToRotation(headingFieldRad);
             Vector3 queryCenter = FieldFrame.ConvertFieldToWorld(xFieldM, yFieldM, QueryHeightM / 2);
             Vector3 queryHalfExtents = new Vector3(FootprintWidthM / 2, QueryHeightM / 2, FootprintLengthM / 2);
-            int count = Physics.OverlapBoxNonAlloc(queryCenter, queryHalfExtents, overlaps, rotation, ~0,
-                QueryTriggerInteraction.Ignore);
+            int count = Physics.OverlapBoxNonAlloc(queryCenter, queryHalfExtents, overlaps, rotation,
+                GameLayers.GetRobotQueryMask(), QueryTriggerInteraction.Ignore);
             Vector3 proxyPosition = FieldFrame.ConvertFieldToWorld(xFieldM, yFieldM, 0);
             double deepestM = 0;
             for (int i = 0; i < count; i++)

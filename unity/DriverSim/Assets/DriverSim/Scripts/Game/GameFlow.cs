@@ -11,9 +11,10 @@ namespace DriverSim.Game
     /// controller-lost screen. It turns menu choices into bridge commands (<c>station</c>, <c>resetPose</c>,
     /// <c>start</c>, <c>practice</c>, <c>pause</c>, <c>resume</c>, <c>abort</c>, <c>disable</c>), keeps in step with
     /// the bridge when the game connects mid-session, pauses when the driver controller disconnects, and handles the
-    /// back key (Esc, or B on a controller) in menus. Command line: <c>--start-in title|practice|match</c> (default
-    /// title), <c>--station &lt;B1..R3&gt;</c>, and <c>--screenshot-menu
-    /// title|station|controls|controllers|options|pause|disconnected|toast</c> to open a screen for captures.
+    /// back key (Esc, or B on a controller) in menus. Starting a session respawns the fuel and clears the scores.
+    /// Command line: <c>--start-in title|practice|match</c> (default title), <c>--station &lt;B1..R3&gt;</c>, and
+    /// <c>--screenshot-menu title|station|controls|controllers|options|pause|disconnected|toast</c> to open a screen
+    /// for captures.
     /// </summary>
     public sealed class GameFlow : MonoBehaviour
     {
@@ -42,6 +43,15 @@ namespace DriverSim.Game
         [Tooltip("Overlay hidden while a menu is open.")]
         [SerializeField] private DebugHud hud;
 
+        [Tooltip("The fuel on the field, respawned when a session starts.")]
+        [SerializeField] private FuelField fuelField;
+
+        [Tooltip("Hopper count, refilled when a session starts.")]
+        [SerializeField] private RobotFuel robotFuel;
+
+        [Tooltip("Scores, cleared when a session starts.")]
+        [SerializeField] private Scoreboard scoreboard;
+
         private MenuScreen screen = MenuScreen.Title; // where the player is
         private MenuScreen returnScreen = MenuScreen.Title; // screen the Controls and Options screens go back to
         private MenuScreen controllersReturnScreen = MenuScreen.Title; // screen the Controllers screen goes back to
@@ -68,6 +78,23 @@ namespace DriverSim.Game
             hud = debugHud;
         }
 
+        /// <summary>Sets the fuel game objects a session start resets; call before the scene starts.</summary>
+        /// <param name="field">The fuel on the field.</param>
+        /// <param name="fuel">Hopper count.</param>
+        /// <param name="scores">Scores.</param>
+        public void SetGameplayReferences(FuelField field, RobotFuel fuel, Scoreboard scores)
+        {
+            fuelField = field;
+            robotFuel = fuel;
+            scoreboard = scores;
+        }
+
+        /// <summary>Whether the current session is free practice.</summary>
+        public bool IsPractice()
+        {
+            return session == SessionKind.Practice;
+        }
+
         /// <summary>Whether the player is in the game itself (no menu open).</summary>
         public bool IsPlaying()
         {
@@ -90,6 +117,15 @@ namespace DriverSim.Game
             link.SendCommand("pause");
             input.StopRumble();
             ShowScreen(MenuScreen.Pause);
+        }
+
+        /// <summary>Puts every fuel ball back at its staged position (free practice only).</summary>
+        public void RespawnFuel()
+        {
+            if (session == SessionKind.Practice)
+            {
+                fuelField.RespawnAll();
+            }
         }
 
         /// <summary>Puts the robot back at its starting spot for the player's station.</summary>
@@ -218,6 +254,7 @@ namespace DriverSim.Game
             if (isOnTitle && isTrusted && isRunning && !match.IsPaused)
             {
                 session = SessionKind.Match;
+                StartGameplay();
                 ShowScreen(MenuScreen.None);
             }
         }
@@ -454,7 +491,16 @@ namespace DriverSim.Game
                 link.SendCommand("practice");
             }
             session = kind;
+            StartGameplay();
             ShowScreen(MenuScreen.None);
+        }
+
+        /// <summary>Starts a session's fuel game: all fuel back on the field, the hopper preloaded, scores cleared.</summary>
+        private void StartGameplay()
+        {
+            fuelField.RespawnAll();
+            robotFuel.Preload();
+            scoreboard.ResetScores();
         }
 
         /// <summary>Continues the paused session.</summary>

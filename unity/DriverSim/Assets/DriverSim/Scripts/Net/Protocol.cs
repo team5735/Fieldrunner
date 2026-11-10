@@ -6,7 +6,7 @@ namespace DriverSim.Net
     /// </summary>
     public static class Protocol
     {
-        public const int Version = 5; // GameLink.PROTOCOL_VERSION; must match the bridge
+        public const int Version = 6; // GameLink.PROTOCOL_VERSION; must match the bridge
         public const string Prefix = "/DriverSim/"; // every Fieldrunner topic starts with this
         public const string RobotStateTopic = "/DriverSim/robot/state"; // double[], bridge to game
         public const string MatchStateTopic = "/DriverSim/match/state"; // double[], bridge to game
@@ -15,6 +15,7 @@ namespace DriverSim.Net
         public const string PoseCorrectionTopic = "/DriverSim/game/poseCorrection"; // double[4], game to bridge
         public const string JoystickTopic = "/DriverSim/game/joystick0"; // double[8], game to bridge
         public const string RumbleTopic = "/DriverSim/robot/rumble"; // double[2], bridge to game
+        public const string GameStateTopic = "/DriverSim/game/state"; // double[], game to bridge
     }
 
     /// <summary>
@@ -59,6 +60,20 @@ namespace DriverSim.Net
         public const int AutoWinner = 5; // 0 unknown, 1 blue, 2 red
         public const int IsPaused = 6; // 1 while the session is paused (by the game or the bridge)
         public const int Length = 7; // number of values
+    }
+
+    /// <summary>
+    /// Index of each value in /DriverSim/game/state. Mirrors GameStateLayout.java; change both together.
+    /// </summary>
+    public static class GameStateLayout
+    {
+        public const int ProtocolVersion = 0; // GameLink.PROTOCOL_VERSION
+        public const int HopperCount = 1; // fuel in the robot's hopper
+        public const int OurScore = 2; // fuel scored in the player's own alliance hub
+        public const int AutoScore = 3; // the part of the score scored during autonomous
+        public const int OpponentAutoScore = 4; // the virtual opponent's autonomous score
+        public const int FieldFuelCount = 5; // fuel resting on the field
+        public const int Length = 6; // number of values
     }
 
     /// <summary>Match phases, in the same order as MatchController.Phase in the bridge.</summary>

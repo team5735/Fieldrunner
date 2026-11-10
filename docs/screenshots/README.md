@@ -34,3 +34,7 @@ phase and what changed. Scratch captures live in `_raw/` (git-ignored, ephemeral
 | 27 | Title screen with the new Controllers item and the "Driver: ..." line (was "Input: ..."). |
 | 28 | Pause menu with the new Controllers item between Controls and Options. |
 | 29 | Performance work: a 3700x2032 window rendered at 1943x1067 and upscaled with FSR; the HUD's new line shows frame rate, cpu/gpu share of the frame and the render size. |
+| 30 | Phase 4: practice start with the 456 staged fuel balls on the field (matte foam look, metallic 0), the new `FUEL 8/20` and `OUR HUB 0` HUD row and the details panel's `fuel:` line. |
+| 31 | Phase 4: a shot in flight, six balls on their arcs toward the blue hub; the hopper is down to 2 and the score is 1. |
+| 32 | Phase 4: HUD with a full preload (`FUEL 8/20`) and `OUR HUB 1` after the first score, before the next volley. |
+| 33 | Phase 4: scored fuel rolling out of the blue hub's exit toward the field center 1.5 s after the score (`OUR HUB 7`, the `+1` pop fading at the top). |

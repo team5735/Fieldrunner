@@ -22,6 +22,7 @@ import frc.robot.subsystems.DrivetrainSubsystem;
 
 import driversim.game.GameCommand;
 import driversim.game.GameLink;
+import driversim.game.GameState;
 import driversim.game.JoystickLink;
 import driversim.game.JoystickSample;
 import driversim.game.MatchController;
@@ -226,6 +227,13 @@ public final class DriverSimBridge {
     }
 
     /**
+     * Reads the fuel and score state the game last published.
+     *
+     * @return The state, or null when no game has published one.
+     */
+    public GameState getGameState() { return link.getGameState(); }
+
+    /**
      * Reports whether a game has connected.
      *
      * @return True once any game has sent {@code hello}.
@@ -257,6 +265,9 @@ public final class DriverSimBridge {
         case ABORT -> match.abort(nowS);
         case BALL_LAUNCHED -> robot.launcher.frSimBallLaunched();
         case HELLO -> isGameAttached = true;
+        case SPAWN_FUEL -> {
+            // the game reads this command from the topic itself
+        }
         case PRACTICE -> match.setPracticeEnabled(true);
         case DISABLE -> match.setPracticeEnabled(false);
         case PAUSE -> {

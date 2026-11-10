@@ -27,6 +27,10 @@ namespace DriverSim.Editor
         public const string ScenePath = "Assets/Scenes/DriverSim.unity";
         private const string FieldModelPath = "Assets/ThirdParty/AdvantageScope/Field2026/Field2026.glb";
         private const string RobotMaterialPath = "Assets/DriverSim/Materials/RobotBase.mat";
+        private const string FuelModelPath = "Assets/ThirdParty/AdvantageScope/Field2026/Fuel.glb";
+        private const string TagManagerPath = "ProjectSettings/TagManager.asset"; // where layer names live
+        private const float FuelFloorMarginM = 3f; // meters the fuel floor extends past the field on every side
+        private const float FuelFloorThicknessM = 1f; // meters, thickness of the fuel floor
         private const string BumpPartNumber = "GE-26100"; // field model nodes of the four bumps start with this
         private const float MinShadowCasterSizeM = 0.25f; // field parts smaller than this (largest side) cast no shadow
         private const string MenuLayoutPath = "Assets/DriverSim/UI/DriverSim.uxml"; // menu screens
@@ -39,6 +43,7 @@ namespace DriverSim.Editor
         public static void BuildScene()
         {
             ApplyPlayerSettings();
+            RegisterLayers();
             Material robotMaterial = LoadOrCreateRobotMaterial();
             GameObject fieldAsset = AssetDatabase.LoadAssetAtPath<GameObject>(FieldModelPath);
             if (fieldAsset == null)
@@ -71,6 +76,7 @@ namespace DriverSim.Editor
 
             // collision: obstacle colliders from the layout table, and bump surfaces from the field model
             BuildObstacles();
+            BuildFuelColliders();
             int bumpColliderCount = AddBumpColliders(field.transform);
             Debug.Log("[Driver-Sim] added " + bumpColliderCount + " bump mesh colliders");
 
@@ -88,6 +94,25 @@ namespace DriverSim.Editor
             robot.SetReferences(link, robotMaterial, labelMaterial, robotCollision);
             CollisionSelfTest collisionSelfTest = robotObject.AddComponent<CollisionSelfTest>();
             collisionSelfTest.SetReferences(robotCollision);
+
+            // fuel: the balls, the robot's hopper and pusher, scoring
+            GameObject fuelModelAsset = AssetDatabase.LoadAssetAtPath<GameObject>(FuelModelPath);
+            if (fuelModelAsset == null)
+            {
+                throw new System.InvalidOperationException("fuel model not imported: " + FuelModelPath);
+            }
+            FuelField fuelField = root.AddComponent<FuelField>();
+            fuelField.SetReferences(link, fieldSetup, fuelModelAsset);
+            RobotFuel robotFuel = robotObject.AddComponent<RobotFuel>();
+            robotFuel.SetReferences(link, robot, fuelField);
+            RobotPusher robotPusher = robotObject.AddComponent<RobotPusher>();
+            robotPusher.SetReferences(link, robot);
+            Scoreboard scoreboard = root.AddComponent<Scoreboard>();
+            scoreboard.SetReferences(link, fuelField);
+            GameStateSender gameStateSender = root.AddComponent<GameStateSender>();
+            gameStateSender.SetReferences(link, robotFuel, scoreboard, fuelField);
+            GameplaySelfTest gameplaySelfTest = robotObject.AddComponent<GameplaySelfTest>();
+            gameplaySelfTest.SetReferences(fuelField, robotFuel, scoreboard);
 
             // driver camera
             GameObject cameraObject = new GameObject("DriverCamera");
@@ -109,7 +134,10 @@ namespace DriverSim.Editor
             FrameRateLog frameRateLog = root.AddComponent<FrameRateLog>();
             RenderScaleCap renderScaleCap = root.AddComponent<RenderScaleCap>();
             DebugHud hud = root.AddComponent<DebugHud>();
-            hud.SetReferences(link, driverCamera, robotCollision, robot, frameRateLog, renderScaleCap);
+            hud.SetReferences(link, driverCamera, robotCollision, robot, frameRateLog, renderScaleCap, fuelField,
+                robotFuel);
+            GameplayHud gameplayHud = root.AddComponent<GameplayHud>();
+            gameplayHud.SetReferences(link, robotFuel, scoreboard, hud);
             ColliderDebugView colliderView = root.AddComponent<ColliderDebugView>();
             Material solidDebugMaterial = LoadOrCreateDebugMaterial("ColliderSolid", new Color(0f, 0.9f, 1f, 0.6f));
             Material lowDebugMaterial = LoadOrCreateDebugMaterial("ColliderLowCeiling", new Color(1f, 0.9f, 0f, 0.6f));
@@ -125,10 +153,12 @@ namespace DriverSim.Editor
             MenuView menuView = BuildMenuUi(controllerInput, gameOptions);
             GameFlow flow = root.AddComponent<GameFlow>();
             flow.SetReferences(link, controllerInput, menuView, hud);
+            flow.SetGameplayReferences(fuelField, robotFuel, scoreboard);
             JoystickSender joystickSender = root.AddComponent<JoystickSender>();
             joystickSender.SetReferences(link, controllerInput, flow);
             GameControls controls = root.AddComponent<GameControls>();
             controls.SetReferences(flow, controllerInput, gameOptions);
+            controls.SetFuelReferences(fuelField, robot);
             BuildEventSystem();
 
             // save and register
@@ -224,6 +254,62 @@ namespace DriverSim.Editor
                 boxCollider.size = new Vector3(spec.GetSizeXFieldM(), heightM, spec.GetSizeYFieldM());
                 FieldObstacle obstacle = obstacleObject.AddComponent<FieldObstacle>();
                 obstacle.SetKind(spec.Kind);
+
+                // fuel rolls under the trench bars, so they sit on a layer fuel ignores
+                if (spec.Kind == ObstacleKind.LowCeiling)
+                {
+                    obstacleObject.layer = GameLayers.LowCeiling;
+                }
+            }
+        }
+
+        /// <summary>
+        /// Names the physics layers fuel uses (<see cref="GameLayers"/>) in the project's tag manager, so the scene's
+        /// layer assignments carry names.
+        /// </summary>
+        private static void RegisterLayers()
+        {
+            Object[] assets = AssetDatabase.LoadAllAssetsAtPath(TagManagerPath);
+            SerializedObject tagManager = new SerializedObject(assets[0]);
+            SerializedProperty layers = tagManager.FindProperty("layers");
+            layers.GetArrayElementAtIndex(GameLayers.Fuel).stringValue = GameLayers.FuelName;
+            layers.GetArrayElementAtIndex(GameLayers.RobotPusher).stringValue = GameLayers.RobotPusherName;
+            layers.GetArrayElementAtIndex(GameLayers.LowCeiling).stringValue = GameLayers.LowCeilingName;
+            tagManager.ApplyModifiedProperties();
+        }
+
+        /// <summary>
+        /// Adds the colliders only fuel needs under a FuelColliders root: a floor at carpet height (the carpet has no
+        /// collider) and a hub-tall body for each hub (the obstacle boxes are only 0.6 m tall).
+        /// </summary>
+        private static void BuildFuelColliders()
+        {
+            GameObject fuelRoot = new GameObject("FuelColliders");
+
+            // carpet: a slab whose top is at height zero, a little past the field on every side
+            GameObject floorObject = new GameObject("FuelFloor");
+            floorObject.transform.SetParent(fuelRoot.transform, false);
+            float floorLengthM = FieldFrame.FieldLengthM + 2 * FuelFloorMarginM;
+            float floorWidthM = FieldFrame.FieldWidthM + 2 * FuelFloorMarginM;
+            floorObject.transform.position = new Vector3(0, -FuelFloorThicknessM / 2, 0);
+            BoxCollider floorCollider = floorObject.AddComponent<BoxCollider>();
+            floorCollider.size = new Vector3(floorLengthM, FuelFloorThicknessM, floorWidthM);
+
+            // hubs: the obstacle footprint, up to the opening height
+            List<ObstacleSpec> specs = FieldObstacleLayout.GetAll();
+            foreach (ObstacleSpec spec in specs)
+            {
+                if (!spec.Name.EndsWith("Hub"))
+                {
+                    continue;
+                }
+                GameObject hubObject = new GameObject(spec.Name + "FuelBody");
+                hubObject.transform.SetParent(fuelRoot.transform, false);
+                float heightM = ShotModel.OpeningHeightM;
+                hubObject.transform.position = FieldFrame.ConvertFieldToWorld(spec.GetCenterXFieldM(),
+                    spec.GetCenterYFieldM(), heightM / 2);
+                BoxCollider hubCollider = hubObject.AddComponent<BoxCollider>();
+                hubCollider.size = new Vector3(spec.GetSizeXFieldM(), heightM, spec.GetSizeYFieldM());
             }
         }
 

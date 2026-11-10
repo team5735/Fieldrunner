@@ -37,6 +37,7 @@ namespace DriverSim.Net
         private int commandPublisher; // /DriverSim/game/command publisher id
         private int correctionPublisher; // /DriverSim/game/poseCorrection publisher id
         private int joystickPublisher; // /DriverSim/game/joystick0 publisher id
+        private int gameStatePublisher; // /DriverSim/game/state publisher id
         private long nextCommandSeq; // sequence number for the next command
         private double localMinusRobotS; // smoothed (local clock - robot clock), seconds
         private bool hasOffset; // localMinusRobotS has been initialized
@@ -47,6 +48,7 @@ namespace DriverSim.Net
         private BridgeInfo parsedBridgeInfo; // bridgeInfo decoded; default until it arrives
         private bool hasBridgeInfo; // bridgeInfo has arrived and parsed
         private RumbleState rumble = RumbleState.None; // newest rumble request from the robot code
+        private readonly Queue<FuelSpawnRequest> spawnRequests = new Queue<FuelSpawnRequest>(); // spawnFuel commands
         private float lastSampleTimeS = -1000; // Time.unscaledTime of the newest robot sample, seconds
         private bool isProtocolMismatch; // bridge speaks a different protocol version
         private int robotStateVersion = Protocol.Version; // protocol version carried by the newest robot state
@@ -197,6 +199,34 @@ namespace DriverSim.Net
             client.SendDoubleArray(correctionPublisher, correction);
         }
 
+        /// <summary>Sends the fuel and score state to the bridge. Dropped while disconnected.</summary>
+        /// <param name="values">Values laid out per <see cref="GameStateLayout"/>.</param>
+        public void SendGameState(double[] values)
+        {
+            if (client == null)
+            {
+                return;
+            }
+            client.SendDoubleArray(gameStatePublisher, values);
+        }
+
+        /// <summary>
+        /// Takes the next <c>spawnFuel</c> command that another client (the self-test, the probe) sent on the command
+        /// topic.
+        /// </summary>
+        /// <param name="request">The request when one is waiting; default otherwise.</param>
+        /// <returns>False when none is waiting.</returns>
+        public bool TryTakeSpawnRequest(out FuelSpawnRequest request)
+        {
+            if (spawnRequests.Count == 0)
+            {
+                request = default;
+                return false;
+            }
+            request = spawnRequests.Dequeue();
+            return true;
+        }
+
         // ---- Unity messages
 
         private void Awake()
@@ -223,6 +253,7 @@ namespace DriverSim.Net
             commandPublisher = client.Publish(Protocol.CommandTopic, "string");
             correctionPublisher = client.Publish(Protocol.PoseCorrectionTopic, "double[]");
             joystickPublisher = client.Publish(Protocol.JoystickTopic, "double[]");
+            gameStatePublisher = client.Publish(Protocol.GameStateTopic, "double[]");
             client.Start();
 
             // frame rate: a fixed cap without a window, the display's refresh rate in one (some drivers ignore vsync)
@@ -324,6 +355,14 @@ namespace DriverSim.Net
                     bridgeInfo = info;
                     hasBridgeInfo = BridgeInfo.TryParse(info, out parsedBridgeInfo);
                     UpdateProtocolMismatch();
+                }
+            }
+            else if (update.Topic == Protocol.CommandTopic)
+            {
+                string wire = update.Value as string;
+                if (FuelSpawnRequest.TryParse(wire, out FuelSpawnRequest request))
+                {
+                    spawnRequests.Enqueue(request);
                 }
             }
             else if (update.Topic == Protocol.RumbleTopic)

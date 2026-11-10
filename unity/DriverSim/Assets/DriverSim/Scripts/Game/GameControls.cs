@@ -1,4 +1,5 @@
 using DriverSim.Net;
+using DriverSim.Robot;
 using UnityEngine;
 using UnityEngine.InputSystem;
 
@@ -6,12 +7,14 @@ namespace DriverSim.Game
 {
     /// <summary>
     /// Keyboard hotkeys for the game itself, kept off the keys the robot uses: F1 details panel, F2 colliders, F3
-    /// camera view, F4 / F5 field of view narrower / wider, F6 reset robot, F10 quit. Also watches the controller pause
-    /// chord: hold Start, then Back, for half a second. (Esc is handled by <see cref="GameFlow"/>.)
+    /// camera view, F4 / F5 field of view narrower / wider, F6 reset robot, F7 respawn fuel (free practice), F8 drop a
+    /// ball a meter in front of the robot (development builds), F10 quit. Also watches the controller pause chord:
+    /// hold Start, then Back, for half a second. (Esc is handled by <see cref="GameFlow"/>.)
     /// </summary>
     public sealed class GameControls : MonoBehaviour
     {
         private const float ChordHoldS = 0.5f; // seconds Start and Back are held together to pause
+        private const float DropAheadM = 1f; // meters in front of the robot that F8 drops a ball
 
         [Tooltip("Game state, for pausing and resetting the robot.")]
         [SerializeField] private GameFlow flow;
@@ -21,6 +24,12 @@ namespace DriverSim.Game
 
         [Tooltip("Display and camera settings the hotkeys change.")]
         [SerializeField] private GameOptions options;
+
+        [Tooltip("The fuel on the field, for F8.")]
+        [SerializeField] private FuelField fuelField;
+
+        [Tooltip("The drawn robot, for F8.")]
+        [SerializeField] private RobotModel robotModel;
 
         private float chordHeldS; // seconds Start and Back have been held together, Start first
         private bool isChordArmed; // Start has been held since before Back was pressed
@@ -34,6 +43,15 @@ namespace DriverSim.Game
             flow = gameFlow;
             input = controllerInput;
             options = gameOptions;
+        }
+
+        /// <summary>Sets the objects the fuel hotkeys act on; call before the scene starts.</summary>
+        /// <param name="field">The fuel on the field.</param>
+        /// <param name="model">The drawn robot.</param>
+        public void SetFuelReferences(FuelField field, RobotModel model)
+        {
+            fuelField = field;
+            robotModel = model;
         }
 
         // ---- Unity messages
@@ -80,10 +98,28 @@ namespace DriverSim.Game
             {
                 flow.ResetRobot();
             }
+            if (keyboard.f7Key.wasPressedThisFrame)
+            {
+                flow.RespawnFuel();
+            }
+            if (keyboard.f8Key.wasPressedThisFrame && Debug.isDebugBuild)
+            {
+                DropFuelAheadOfRobot();
+            }
             if (keyboard.f10Key.wasPressedThisFrame)
             {
                 Application.Quit();
             }
+        }
+
+        /// <summary>Puts one fuel ball on the carpet a meter in front of the drawn robot.</summary>
+        private void DropFuelAheadOfRobot()
+        {
+            Transform body = robotModel.GetBody();
+            Vector3 flatForward = new Vector3(body.forward.x, 0, body.forward.z).normalized;
+            Vector3 position = body.position + flatForward * DropAheadM;
+            position.y = ShotModel.BallRadiusM;
+            fuelField.SpawnResting(position);
         }
 
         /// <summary>Pauses when Start, then Back, have been held together for <see cref="ChordHoldS"/>.</summary>

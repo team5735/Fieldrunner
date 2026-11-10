@@ -6,6 +6,7 @@ import edu.wpi.first.networktables.NetworkTableInstance;
 import edu.wpi.first.networktables.StringPublisher;
 import edu.wpi.first.networktables.StringTopic;
 
+import driversim.game.GameState;
 import driversim.game.MatchController;
 import driversim.game.MatchStateLayout;
 import driversim.game.RobotStateLayout;
@@ -17,7 +18,7 @@ import driversim.game.RobotStateLayout;
  * <p>
  * Usage: {@code ./gradlew probeDriverSim -Pargs="[seconds],[command],[command]..."}, comma separated, where each
  * command is a {@link driversim.game.GameCommand} without its sequence number, e.g.
- * {@code -Pargs="30,station R1,start"}. Commands are sent one second apart after connecting.
+ * {@code -Pargs="30,station R1,start"}; {@code spawnFuel <x> <y> [height]} drops a fuel ball in the game. Commands are sent one second apart after connecting.
  */
 public final class NtProbe {
     private static final double DEFAULT_RUN_S = 10;       // seconds to run when no duration is given
@@ -49,6 +50,8 @@ public final class NtProbe {
         DoubleArraySubscriber robotState = robotStateTopic.subscribe(new double[0]);
         DoubleArrayTopic matchStateTopic = nt.getDoubleArrayTopic("/DriverSim/match/state");
         DoubleArraySubscriber matchState = matchStateTopic.subscribe(new double[0]);
+        DoubleArrayTopic gameStateTopic = nt.getDoubleArrayTopic("/DriverSim/game/state");
+        DoubleArraySubscriber gameState = gameStateTopic.subscribe(new double[0]);
         StringTopic commandTopic = nt.getStringTopic("/DriverSim/game/command");
         StringPublisher command = commandTopic.publish();
 
@@ -78,7 +81,7 @@ public final class NtProbe {
             // state line
             double[] robot = robotState.get();
             double[] match = matchState.get();
-            String line = makeStateLine(isConnected, robot, match);
+            String line = makeStateLine(isConnected, robot, match) + makeGameStateText(gameState.get());
             System.out.println("[probe] " + line);
         }
         nt.close();
@@ -86,6 +89,23 @@ public final class NtProbe {
     }
 
     // ---- low-level helpers (static, no side effects)
+
+    /**
+     * Describes the game's fuel and score state.
+     *
+     * @param values The game's state array, laid out per {@link driversim.game.GameStateLayout}; may be empty.
+     * @return Text to append to the state line; empty when the game has published no state.
+     */
+    private static String makeGameStateText(double[] values) {
+        GameState game = GameState.parse(values);
+        if (game == null) {
+            return "";
+        }
+        return String.format(
+            " | game: hopper=%d score=%d auto=%d vs %d field=%d", game.hopperCount(), game.ourScore(), game.autoScore(),
+            game.opponentAutoScore(), game.fieldFuelCount()
+        );
+    }
 
     /**
      * Describes the bridge's state in one line.

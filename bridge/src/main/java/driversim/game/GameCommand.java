@@ -23,15 +23,19 @@ import edu.wpi.first.math.geometry.Rotation2d;
  * <li>{@code disable} - free practice: disable the robot (outside a match).</li>
  * <li>{@code pause} - hold the match clock and disable the robot; in free practice, disable the robot.</li>
  * <li>{@code resume} - continue a paused match in the phase it was paused in; in free practice, enable the robot.</li>
+ * <li>{@code spawnFuel <xMeters> <yMeters> [heightMeters]} - the game puts one fuel ball at a field-frame spot: on the
+ * carpet, or released at rest from the given height. The game reads it from the topic; the bridge ignores it.</li>
  * </ul>
  *
  * @param seq       Sequence number from the game.
  * @param verb      What to do.
  * @param text      Station name for STATION ("B1".."R3"), alliance letter for AUTO_WINNER ("R" or "B"); empty
  *                  otherwise.
- * @param poseField Where to place the robot for RESET_POSE, field frame; null otherwise.
+ * @param poseField Where to place the robot for RESET_POSE, or the fuel spot for SPAWN_FUEL (heading zero), field
+ *                  frame; null otherwise.
+ * @param heightM   Release height for SPAWN_FUEL, meters; 0 puts the ball on the carpet.
  */
-public record GameCommand(long seq, Verb verb, String text, Pose2d poseField) {
+public record GameCommand(long seq, Verb verb, String text, Pose2d poseField, double heightM) {
     /** Command kinds. */
     public enum Verb {
         START,
@@ -45,8 +49,19 @@ public record GameCommand(long seq, Verb verb, String text, Pose2d poseField) {
         PRACTICE,
         DISABLE,
         PAUSE,
-        RESUME
+        RESUME,
+        SPAWN_FUEL
     }
+
+    /**
+     * Creates a command that carries no release height.
+     *
+     * @param seq       Sequence number from the game.
+     * @param verb      What to do.
+     * @param text      Text argument; empty when the verb has none.
+     * @param poseField Pose argument; null when the verb has none.
+     */
+    public GameCommand(long seq, Verb verb, String text, Pose2d poseField) { this(seq, verb, text, poseField, 0); }
 
     /**
      * Parses one command string.
@@ -112,6 +127,21 @@ public record GameCommand(long seq, Verb verb, String text, Pose2d poseField) {
             return new GameCommand(seq, Verb.AUTO_WINNER, parts[2], null);
         }
 
+        // fuel placement, with an optional release height
+        boolean hasFuelArguments = parts.length == 4 || parts.length == 5;
+        if (verbText.equals("spawnFuel") && hasFuelArguments) {
+            String heightText = "0";
+            if (parts.length == 5) {
+                heightText = parts[4];
+            }
+            Pose2d spotField = convertToPose(parts[2], parts[3], "0");
+            double heightM = convertToNumber(heightText);
+            if (spotField == null || !Double.isFinite(heightM) || heightM < 0) {
+                return null;
+            }
+            return new GameCommand(seq, Verb.SPAWN_FUEL, "", spotField, heightM);
+        }
+
         // robot placement
         if (verbText.equals("resetPose") && parts.length == 5) {
             Pose2d poseField = convertToPose(parts[2], parts[3], parts[4]);
@@ -140,6 +170,20 @@ public record GameCommand(long seq, Verb verb, String text, Pose2d poseField) {
      * @return True for "R" and "B".
      */
     private static boolean isAllianceLetter(String text) { return text.equals("R") || text.equals("B"); }
+
+    /**
+     * Reads one number token.
+     *
+     * @param text Candidate number.
+     * @return The number, or NaN when the token is not a number.
+     */
+    private static double convertToNumber(String text) {
+        try {
+            return Double.parseDouble(text);
+        } catch (NumberFormatException e) {
+            return Double.NaN;
+        }
+    }
 
     /**
      * Builds a field-frame pose from three number tokens.

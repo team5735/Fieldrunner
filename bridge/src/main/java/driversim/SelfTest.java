@@ -12,6 +12,7 @@ import edu.wpi.first.math.geometry.Translation2d;
 import edu.wpi.first.networktables.DoubleArrayPublisher;
 import edu.wpi.first.networktables.DoubleArrayTopic;
 import edu.wpi.first.networktables.NetworkTableInstance;
+import edu.wpi.first.networktables.StringPublisher;
 import edu.wpi.first.units.measure.Angle;
 import edu.wpi.first.units.measure.AngularVelocity;
 import edu.wpi.first.wpilibj.DriverStation;
@@ -27,7 +28,9 @@ import java.util.List;
 import java.util.function.BooleanSupplier;
 
 import frc.robot.Robot;
+import frc.robot.constants.FieldConstants;
 
+import driversim.game.GameState;
 import driversim.game.MatchController;
 
 /**
@@ -38,7 +41,8 @@ import driversim.game.MatchController;
  * the shot-gating checks all pass, and a match starts in autonomous. In with-game mode it then waits for the Unity game
  * to attach and checks that the game's collisions reach the true pose: walls, hub and trench blocks stop the robot, the
  * robot code's estimate recovers after a wall, a corner hit turns the truth but not the gyro, a raised hood is blocked
- * by the trench bar, and bumps are drivable.
+ * by the trench bar, and bumps are drivable. Then it checks the game's fuel: the intake takes a ball, a shot from the
+ * robot code's dynamic launch scores in the player's hub, and a ball dropped into the other alliance's hub does not.
  *
  * <p>
  * Inputs go through the simulated driver station exactly as the GUI's joysticks would. Run it without the sim GUI
@@ -51,6 +55,19 @@ final class SelfTest {
     private static final int DRIVER_PORT = 0;                 // driver controller port
     private static final int AXIS_LEFT_Y = 1;                 // Xbox left stick Y; pushing forward is negative
     private static final int BUTTON_B = 2;                    // Xbox B: dynamic launch at the hub
+    private static final String COMMAND_TOPIC = "/DriverSim/game/command";  // the game's command topic
+    private static final int BUTTON_RIGHT_BUMPER = 6;                       // Xbox right bumper: intake roller in
+    private static final int POV_DOWN_DEG = 180;                            // D-pad down: intake slapdown
+    private static final int POV_RELEASED_DEG = -1;                         // D-pad not pressed
+    private static final double INTAKE_ARM_DOWN_MAX_DEG = 40;  // arm angle below this is down far enough to take fuel
+    private static final double INTAKE_BALL_AHEAD_M = 0.8;     // meters ahead of the robot's center the test ball sits
+    private static final double INTAKE_DRIVE_S = 3;            // seconds the intake step may take
+    private static final double SHOT_RANGE_M = 2.5;            // meters from the hub the shot step starts
+    private static final double SHOT_SCORE_S = 4;              // seconds the robot has to score its first shot
+    private static final double FLIGHT_FLUSH_S = 1.5;          // seconds for balls in the air to land or score
+    private static final double DROP_HEIGHT_M = 3;             // meters above the carpet a dropped ball is released
+    private static final double DROP_SCORE_S = 3;              // seconds a dropped ball has to score
+    private static final double DROP_QUIET_S = 2;              // seconds to watch that a dropped ball scores nothing
     private static final String VISION_ENABLED_ENTRY = "/vision/enabled";  // robot code's switch for camera fusion
     private static final int BUTTON_BACK = 7;                     // Xbox Back: the robot code's seedFieldCentric
     private static final double LAUNCH_OVERRIDE_WINDOW_S = 0.95;  // seconds; under the launch command's 1 s override
@@ -94,6 +111,8 @@ final class SelfTest {
         new Pose2d(3.3, 0.634, Rotation2d.kZero);  // blue right trench lane
     private static final Pose2d BUMP_START_FIELD =
         new Pose2d(3.3, 2.4, Rotation2d.kZero);  // in line with the right bump
+    private static final Pose2d INTAKE_START_FIELD =
+        new Pose2d(2.0, 6.0, Rotation2d.kZero);  // open carpet in the blue alliance zone, facing downfield
 
     private final Robot robot;             // robot under test
     private final DriverSimBridge bridge;  // bridge under test
@@ -110,6 +129,11 @@ final class SelfTest {
     private double gyroAfterWallDeg;                     // gyro yaw when the angled wall step ended
     private boolean wasWallFlush;                        // wall step: truth stopped flush at the wall
     private boolean wasEstimateLostAtWall;               // wall step: estimate kept going through the wall
+    private StringPublisher gameCommandPublisher;        // publishes game commands (fuel drops); made on first use
+    private long nextGameCommandSeq;                     // sequence number of the next command this test sends
+    private int hopperBefore;                            // intake step: fuel in the hopper before the ball was placed
+    private int scoreBefore;                             // score step: the player's score before the action
+    private boolean hasBlueDropScored;                   // drop step: the ball dropped into our hub scored
 
     /**
      * Prepares a self-test against a running robot and bridge.
@@ -134,6 +158,11 @@ final class SelfTest {
         this.gyroAfterWallDeg = 0;
         this.wasWallFlush = false;
         this.wasEstimateLostAtWall = false;
+        this.gameCommandPublisher = null;
+        this.nextGameCommandSeq = 1;
+        this.hopperBefore = 0;
+        this.scoreBefore = 0;
+        this.hasBlueDropScored = false;
     }
 
     /** Schedules the whole test on the command scheduler. */
@@ -219,6 +248,7 @@ final class SelfTest {
         // with a game attached: its collisions must reach the robot code's pose
         if (isWithGame) {
             addCollisionSteps(steps);
+            addGameplaySteps(steps);
         }
 
         // report and exit
@@ -267,6 +297,161 @@ final class SelfTest {
 
         // bumps are drivable
         steps.add(makeDriveStep("bump passable", BUMP_START_FIELD, -1.0, 2.5, false, this::hasPassedTrench));
+    }
+
+    /**
+     * Adds the steps that check the game's fuel: the intake takes a ball, the robot code's launch scores in our hub,
+     * and a ball dropped into the other alliance's hub changes nothing.
+     *
+     * @param steps Step list to append to.
+     */
+    private void addGameplaySteps(List<Command> steps) {
+        // intake: arm down and roller in, drive into a ball
+        steps.add(Commands.runOnce(this::prepareIntakeTest));
+        steps.add(Commands.waitUntil(this::isIntakeArmDown).withTimeout(INTAKE_DRIVE_S));
+        steps.add(Commands.waitSeconds(SETTLE_S));
+        steps.add(Commands.runOnce(this::startIntakeDrive));
+        steps.add(makeStep("intake picks up fuel", Commands.none(), this::hasHopperGained, INTAKE_DRIVE_S));
+        steps.add(Commands.runOnce(this::endIntakeTest));
+
+        // shot: hold B at range with the hub along the turret and wait for the score to rise
+        steps.add(Commands.runOnce(this::startShotTest));
+        steps.add(Commands.waitSeconds(SETTLE_S));
+        steps.add(Commands.runOnce(this::pressShotB));
+        steps.add(makeStep("shot scores in our hub", Commands.none(), this::hasScoreRisen, SHOT_SCORE_S));
+        steps.add(Commands.runOnce(this::releaseB));
+        steps.add(Commands.waitSeconds(FLIGHT_FLUSH_S));
+
+        // free practice: a ball into our hub scores, a ball into the other hub does not
+        steps.add(makeDropStep());
+    }
+
+    /**
+     * Builds the drop step: a ball released over our hub's opening must raise the score, then one released over the
+     * other alliance's hub must leave it alone.
+     *
+     * @return Command for the step.
+     */
+    private Command makeDropStep() {
+        double[] startS = new double[1];  // written by the step's first command, read by its last
+        Command markStart = Commands.runOnce(() -> startS[0] = Timer.getFPGATimestamp());
+
+        // our hub first, to show the drop reaches the game
+        Translation2d blueHubField = FieldConstants.BLUE_HUB_CENTER;
+        Command dropBlue = Commands.runOnce(() -> dropFuelAbove(blueHubField));
+        Command waitBlue = Commands.waitUntil(this::hasScoreRisen).withTimeout(DROP_SCORE_S);
+        Command noteBlue = Commands.runOnce(this::noteBlueDrop);
+
+        // then the other hub, which must not score
+        Translation2d redHubField = FieldConstants.redElement(FieldConstants.BLUE_HUB_CENTER);
+        Command dropRed = Commands.runOnce(() -> dropFuelAbove(redHubField));
+        Command watchRed = Commands.waitSeconds(DROP_QUIET_S);
+        BooleanSupplier check = this::hasOnlyOurHubScored;
+        Command recordStep =
+            Commands.runOnce(() -> recordResult("free practice counts only our hub", check, startS[0]));
+        return Commands.sequence(markStart, dropBlue, waitBlue, noteBlue, dropRed, watchRed, recordStep);
+    }
+
+    /** Intake step: enables the robot, puts it on open carpet facing downfield, and presses D-pad down. */
+    private void prepareIntakeTest() {
+        enableTeleopBlue();
+        bridge.placeRobot(INTAKE_START_FIELD);
+        DriverStationSim.setJoystickPOV(DRIVER_PORT, 0, POV_DOWN_DEG);
+        DriverStationSim.notifyNewData();
+    }
+
+    /** Intake step: rolls the intake in, places a ball ahead of the robot and drives toward it. */
+    private void startIntakeDrive() {
+        hopperBefore = getHopperCount();
+        DriverStationSim.setJoystickButton(DRIVER_PORT, BUTTON_RIGHT_BUMPER, true);
+        double ballXFieldM = INTAKE_START_FIELD.getX() + INTAKE_BALL_AHEAD_M;
+        sendGameCommand(String.format("spawnFuel %.3f %.3f", ballXFieldM, INTAKE_START_FIELD.getY()));
+        pushLeftStick(-1.0);
+    }
+
+    /** Intake step: stops driving and lets go of the roller and the D-pad. */
+    private void endIntakeTest() {
+        releaseSticks();
+        DriverStationSim.setJoystickButton(DRIVER_PORT, BUTTON_RIGHT_BUMPER, false);
+        DriverStationSim.setJoystickPOV(DRIVER_PORT, 0, POV_RELEASED_DEG);
+        DriverStationSim.notifyNewData();
+    }
+
+    /**
+     * Shot step: enables the robot and places it a shot's range from our hub, turned so that the hub lies along the
+     * turret's present direction and the turret has nowhere to travel.
+     */
+    private void startShotTest() {
+        enableTeleopBlue();
+        Translation2d hubField = FieldConstants.BLUE_HUB_CENTER;
+        double turretRobotRelRad = robot.turret.frGetSimAngleRobotRel().in(Radians);
+        Rotation2d headingField = new Rotation2d(-turretRobotRelRad);
+        Pose2d startField = new Pose2d(hubField.getX() - SHOT_RANGE_M, hubField.getY(), headingField);
+        bridge.placeRobot(startField);
+    }
+
+    /** Shot step: remembers the score and presses B, the robot code's dynamic launch at our hub. */
+    private void pressShotB() {
+        scoreBefore = getOurScore();
+        pressB();
+    }
+
+    /**
+     * Drop step: releases a ball at rest above a hub's opening, in the game.
+     *
+     * @param hubField Hub center, field frame.
+     */
+    private void dropFuelAbove(Translation2d hubField) {
+        scoreBefore = getOurScore();
+        sendGameCommand(String.format("spawnFuel %.4f %.4f %.2f", hubField.getX(), hubField.getY(), DROP_HEIGHT_M));
+    }
+
+    /** Drop step: notes whether the ball over our hub scored, and the score to hold the other drop against. */
+    private void noteBlueDrop() {
+        hasBlueDropScored = hasScoreRisen();
+        scoreBefore = getOurScore();
+    }
+
+    /**
+     * Sends one command to the game over its command topic, with a sequence number below the game's so the bridge
+     * takes it for a restarted sender and keeps accepting the game's own commands.
+     *
+     * @param verbAndArgs Command text without its sequence number.
+     */
+    private void sendGameCommand(String verbAndArgs) {
+        if (gameCommandPublisher == null) {
+            NetworkTableInstance nt = NetworkTableInstance.getDefault();
+            gameCommandPublisher = nt.getStringTopic(COMMAND_TOPIC).publish();
+        }
+        String wire = nextGameCommandSeq + " " + verbAndArgs;
+        nextGameCommandSeq++;
+        gameCommandPublisher.set(wire);
+    }
+
+    /**
+     * Reads the fuel in the robot's hopper, as the game reports it.
+     *
+     * @return Fuel count; -1 before the game has published a state.
+     */
+    private int getHopperCount() {
+        GameState state = bridge.getGameState();
+        if (state == null) {
+            return -1;
+        }
+        return state.hopperCount();
+    }
+
+    /**
+     * Reads the player's score, as the game reports it.
+     *
+     * @return Fuel scored in the player's own hub; -1 before the game has published a state.
+     */
+    private int getOurScore() {
+        GameState state = bridge.getGameState();
+        if (state == null) {
+            return -1;
+        }
+        return state.ourScore();
     }
 
     /**
@@ -847,5 +1032,45 @@ final class SelfTest {
     private boolean hasPassedTrench() {
         Pose2d poseField = getTruthPoseField();
         return poseField.getX() > TRENCH_PASSED_X_M;
+    }
+
+    /**
+     * Self-test pass condition.
+     *
+     * @return True when the intake arm is down far enough to take fuel.
+     */
+    private boolean isIntakeArmDown() {
+        double armDeg = robot.intake.frGetSimArmAngle().in(Degrees);
+        return armDeg < INTAKE_ARM_DOWN_MAX_DEG;
+    }
+
+    /**
+     * Self-test pass condition.
+     *
+     * @return True when the hopper holds more fuel than before the ball was placed.
+     */
+    private boolean hasHopperGained() {
+        int hopperCount = getHopperCount();
+        return hopperBefore >= 0 && hopperCount > hopperBefore;
+    }
+
+    /**
+     * Self-test pass condition.
+     *
+     * @return True when the player's score is above its value at the start of the step.
+     */
+    private boolean hasScoreRisen() {
+        int ourScore = getOurScore();
+        return scoreBefore >= 0 && ourScore > scoreBefore;
+    }
+
+    /**
+     * Self-test pass condition.
+     *
+     * @return True when the drop into our hub scored and the drop into the other hub left the score as it was.
+     */
+    private boolean hasOnlyOurHubScored() {
+        int ourScore = getOurScore();
+        return hasBlueDropScored && ourScore == scoreBefore;
     }
 }

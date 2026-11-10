@@ -13,3 +13,6 @@ Known open items, not planned. Pick one up if it starts to matter.
 - **Field model is raw CAD** (4.3M triangles, ~2,900 meshes). Fine on an RTX 4090 laptop (GPU ~1.4 ms at 1600x900);
   could matter on weak laptops. Fix: simplify at import (drop small parts, merge by material, decimate).
 - **Bump collision uses 160 mesh colliders.** Negligible CPU today; could be a few boxes / ramps.
+- **Turret overshoot in sim.** Starting near its reverse limit, the simulated turret swings past a target to the
+  forward limit and is re-zeroed, so the first volley after enabling sprays. The with-game shot self-test points the
+  robot so the turret needn't move. Look at the turret sim's plant (kV/kA) against the robot code's profile.

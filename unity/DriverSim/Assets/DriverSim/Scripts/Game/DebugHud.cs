@@ -8,16 +8,16 @@ namespace DriverSim.Game
 {
     /// <summary>
     /// Plain overlay: match clock and phase across the top, connection and robot details in a corner panel (F1), a hood
-    /// warning under the clock while a trench bar blocks the robot, and a one-line key reminder at the bottom. The
-    /// whole overlay hides while a menu screen is open. The full game HUD replaces the top bar in a later phase. Layout
-    /// is in points of a 900-point-tall virtual screen, scaled to the window.
+    /// warning under the gameplay readout (<see cref="GameplayHud"/>) while a trench bar blocks the robot, and a
+    /// one-line key reminder at the bottom. The whole overlay hides while a menu screen is open. Layout is in points of
+    /// a 900-point-tall virtual screen, scaled to the window.
     /// </summary>
     public sealed class DebugHud : MonoBehaviour
     {
         private const float VirtualHeight = 900f; // virtual screen height the layout is drawn in, points
         private const string TrenchWarning = "HOOD UP - LOWER IT FOR THE TRENCH";
-        private const string KeyHelp =
-            "Esc pause   F1 details   F2 colliders   F3 view   F4 F5 FOV   F6 reset robot   F10 quit";
+        private const string KeyHelp = "Esc pause   F1 details   F2 colliders   F3 view   F4 F5 FOV   F6 reset robot"
+            + "   F7 respawn fuel   F10 quit";
 
         [Tooltip("Link to the bridge.")]
         [SerializeField] private DriverSimLink link;
@@ -30,6 +30,12 @@ namespace DriverSim.Game
 
         [Tooltip("Drawn robot, for the bump readout.")]
         [SerializeField] private RobotModel robotModel;
+
+        [Tooltip("Fuel on the field, for the fuel line.")]
+        [SerializeField] private FuelField fuelField;
+
+        [Tooltip("Hopper count, for the fuel line.")]
+        [SerializeField] private RobotFuel robotFuel;
 
         [Tooltip("Frame timing, for the performance line.")]
         [SerializeField] private FrameRateLog frameRate;
@@ -51,15 +57,26 @@ namespace DriverSim.Game
         /// <param name="model">Drawn robot.</param>
         /// <param name="frameRateLog">Frame timing.</param>
         /// <param name="renderScaleCap">Render resolution cap.</param>
+        /// <param name="field">Fuel on the field.</param>
+        /// <param name="fuel">Hopper count.</param>
         public void SetReferences(DriverSimLink driverSimLink, DriverStationCamera cameraRig,
-            RobotCollision robotCollision, RobotModel model, FrameRateLog frameRateLog, RenderScaleCap renderScaleCap)
+            RobotCollision robotCollision, RobotModel model, FrameRateLog frameRateLog, RenderScaleCap renderScaleCap,
+            FuelField field, RobotFuel fuel)
         {
+            fuelField = field;
+            robotFuel = fuel;
             renderScale = renderScaleCap;
             robotModel = model;
             frameRate = frameRateLog;
             link = driverSimLink;
             driverCamera = cameraRig;
             collision = robotCollision;
+        }
+
+        /// <summary>Whether the overlay is shown (it hides while a menu screen is open).</summary>
+        public bool IsVisible()
+        {
+            return isVisible;
         }
 
         /// <summary>Shows or hides the whole overlay.</summary>
@@ -132,11 +149,11 @@ namespace DriverSim.Game
             GUI.Label(box, clockText, clockStyle);
         }
 
-        /// <summary>Draws the hood warning centered under the clock.</summary>
+        /// <summary>Draws the hood warning centered under the gameplay readout.</summary>
         /// <param name="width">Virtual screen width, points.</param>
         private void DrawTrenchWarning(float width)
         {
-            Rect box = new Rect(width / 2 - 300, 66, 600, 40);
+            Rect box = new Rect(width / 2 - 300, 134, 600, 40);
             GUI.Box(box, GUIContent.none);
             GUI.Label(box, TrenchWarning, warningStyle);
         }
@@ -176,6 +193,10 @@ namespace DriverSim.Game
             string intakeLine = string.Format("intake {0:F0} deg  roller {1:F1} V  feed {2:F1} V  climber {3:F2}",
                 robot.IntakeArmDeg, robot.IntakeRollerVolts, robot.SpindexFeedVolts, robot.ClimberExtension);
 
+            // fuel
+            string fuelLine = string.Format("fuel: field {0}  flying {1}  hopper {2}", fuelField.GetFieldCount(),
+                fuelField.GetFlyingCount(), robotFuel.GetHopperCount());
+
             // hubs
             string blueHub = MakeActiveText(match.IsBlueHubActive);
             string redHub = MakeActiveText(match.IsRedHubActive);
@@ -198,10 +219,11 @@ namespace DriverSim.Game
                 + estimateLine + "\n"
                 + mechanismLine + "\n"
                 + intakeLine + "\n"
+                + fuelLine + "\n"
                 + collisionLine + "\n"
                 + "hubs: blue " + blueHub + "   red " + redHub;
-            GUI.Box(new Rect(8, 8, 470, 232), GUIContent.none);
-            GUI.Label(new Rect(16, 12, 460, 224), text, panelStyle);
+            GUI.Box(new Rect(8, 8, 470, 252), GUIContent.none);
+            GUI.Label(new Rect(16, 12, 460, 244), text, panelStyle);
         }
 
         /// <summary>How far the robot code's own pose estimate is from where the robot really is, in one line.</summary>

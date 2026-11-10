@@ -1,4 +1,5 @@
 using DriverSim.Field;
+using DriverSim.Game;
 using DriverSim.Net;
 using UnityEngine;
 
@@ -88,6 +89,12 @@ namespace DriverSim.Robot
         public float GetBumpRightUpDeg()
         {
             return bumpRightUpDeg;
+        }
+
+        /// <summary>Turret pivot of the drawn robot; its forward is the robot's heading plus the turret angle.</summary>
+        public Transform GetTurret()
+        {
+            return turret;
         }
 
         /// <summary>Root transform of the drawn robot, at the robot pose.</summary>
@@ -355,7 +362,8 @@ namespace DriverSim.Robot
         {
             Vector3 origin = new Vector3(pointWorld.x, BumpRayStartHeightM, pointWorld.z);
             Ray ray = new Ray(origin, Vector3.down);
-            int count = Physics.RaycastNonAlloc(ray, rayHits, BumpRayLengthM, ~0, QueryTriggerInteraction.Ignore);
+            int count = Physics.RaycastNonAlloc(ray, rayHits, BumpRayLengthM, GameLayers.GetRobotQueryMask(),
+                QueryTriggerInteraction.Ignore);
             float height = 0;
             for (int i = 0; i < count; i++)
             {

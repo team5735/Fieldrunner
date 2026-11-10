@@ -37,8 +37,9 @@ Read README.md first: architecture, tasks, protocol. Phase specs live in `docs/s
   `²` or `θ`.
 - **The bridge runs on the robot's main loop thread** (`TimedRobot.addPeriodic`); never start threads that touch
   robot objects.
-- **Protocol changes touch both sides**: `game/RobotStateLayout.java` / `MatchStateLayout.java` and their C# mirrors
-  in the Unity project, and bump `GameLink.PROTOCOL_VERSION`.
+- **Protocol changes touch both sides**: `game/RobotStateLayout.java` / `MatchStateLayout.java` /
+  `GameStateLayout.java` and their C# mirrors in the Unity project (`Net/Protocol.cs`), and bump
+  `GameLink.PROTOCOL_VERSION` together with C# `Protocol.Version`.
 
 ## Build and verify (from ../FRC-2026)
 
@@ -47,7 +48,7 @@ export JAVA_HOME=~/.local/jdk-17 PATH=~/.local/jdk-17/bin:$PATH   # this machine
 ./gradlew testDriverSim          # unit tests
 ./gradlew selfTestDriverSim      # headless end-to-end check against the real robot code; must print 15/15
                                  # also prints [Driver-Sim drive-feel] lines (time to speed, accel, stopping)
-./gradlew selfTestDriverSimWithGame   # same plus the built Unity game (needs scripts/build-unity.sh linux); must print 23/23
+./gradlew selfTestDriverSimWithGame   # same plus the built Unity game (needs scripts/build-unity.sh linux); must print 26/26
 ```
 
 Redirect Gradle output to a file and grep it; sim runs are chatty. `simulateDriverSim` opens the game window on the
@@ -82,12 +83,23 @@ the README's controls table).
 - Placing the robot is the bridge acting as the drive team: `DriverSimBridge.placeRobot` sets the truth pose and also
   `resetPose` on the robot code. Self-test code must place through it, and read positions from
   `robot.drivetrain.frGetSimTruthPose()` unless the check is about what the robot believes.
+- The self-test's shot step (`shot scores in our hub`) turns the robot so the hub lies along the turret's present
+  direction: the simulated turret overshoots badly when it has to travel far (from its reverse limit it swings past the
+  target to the forward limit and the robot code re-zeroes it), and with the turret swinging the 8 to 9 balls in the
+  hopper are gone in a second without scoring. A shot test that makes the turret travel is flaky.
+- The self-test sends `spawnFuel` straight on `/DriverSim/game/command` with a small sequence number (the bridge treats
+  it as a restarted sender and keeps accepting the game's own much larger numbers). The game reads `spawnFuel` from that
+  topic; its own commands echo back and are ignored. The game's output in `selfTestDriverSimWithGame` is not shown;
+  pass `DRIVERSIM_GAME_ARGS="-logFile <path>"` to keep it.
 - The robot code ignores Limelight frames while the robot is within about 0.65 m of a wall (its "in field" check), so
   the estimate cannot recover while the robot sits flush against a wall; the wall self-test step drives off the wall
   first. A heading reset (Back) is also undone within a few loops by vision, so the Back step switches the robot
   code's `/vision/enabled` off while it checks.
 - The robot code rejects vision frames while the Pigeon reports rotation (it compares deg/s with a rad/s limit), so the
   estimate converges while driving straight or holding still.
+
+- Later balls in a volley fall short: each launch takes 6% of flywheel speed and the robot code's bang-bang can't
+  recover between balls at 8 balls/s. The real robot does the same; this is intended, not a bug to tune away.
 
 ## Unity game
 
@@ -134,6 +146,34 @@ the README's controls table).
   Every meaningful render is copied up to `docs/screenshots/NN-phaseX-what.jpg` (next number, never overwrite or
   delete) with a line in `docs/screenshots/README.md`; the user follows progress there. Screenshots are JPEG
   (smaller): the capture script and `--screenshot` write `.jpg`; convert any PNG before adding it.
+
+## Fuel and gameplay (phase 4)
+
+Spec: `docs/specs/phase4-gameplay.md`; the rules and numbers are in the README's Gameplay section.
+
+- **Layers** (`Game/GameLayers.cs`; `SceneBuilder.RegisterLayers` writes the names into `ProjectSettings/TagManager.asset`):
+  8 `Fuel`, 9 `RobotPusher`, 10 `LowCeiling` (the trench bar boxes, set in `BuildObstacles`). `FuelField.Awake` applies
+  the collision matrix: fuel ignores LowCeiling; the pusher collides with fuel only. `Physics.IgnoreLayerCollision`
+  is set at runtime, not in `DynamicsManager.asset`.
+- **Robot queries must skip fuel**: `RobotCollision`'s `OverlapBox` (32-slot buffer) and `RobotModel`'s bump rays use
+  `GameLayers.GetRobotQueryMask()`; with ~0 a pile of balls at the robot's feet would crowd out the obstacles. New
+  physics queries about the robot or field use the same mask.
+- **Fuel-only colliders** (`SceneBuilder.BuildFuelColliders`, root `FuelColliders`): the carpet has no collider, so a
+  floor slab sits at height 0, and each hub gets a 1.83 m tall box (the obstacle boxes are 0.6 m). Neither carries a
+  `FieldObstacle`, so the robot ignores them.
+- **Flight is analytic**: `ShotModel.MakeFlightPlan` fixes the arc and the aim assist at launch; `StepFlight` evaluates
+  it at two times and decides Scored / HitHub / Landed. `FuelField` steps it in 10 ms pieces; a ball in flight has no
+  collider (kinematic, collider off). `ShotModel` holds a copy of the robot code's score table
+  (`LaunchCalculator.scoreSpeedMap` / `scoreHoodMap`); when that table changes, copy it and re-fit
+  `ExitMpsPerRpm` / `HoodElevationOffsetDeg` (`--gameplay-selftest` prints each row's miss distance).
+- **Resets are explicit**: `GameFlow.StartGameplay` (session start, restart, match started from outside) respawns the
+  fuel, preloads the hopper and clears `Scoreboard`; the scoreboard also sends `autoWinner` when it sees autonomous end.
+  A restart inside one bridge update can look like no phase change, which is why the reset is not driven by the phase.
+- `RobotFuel.RunIntake` / `RunLauncher` and `ShotModel` are plain methods with explicit inputs; the gameplay self-test
+  calls them with synthetic values. The player log shows `[Driver-Sim gameplay-selftest] PASS|FAIL ...`; run it like the
+  collision self-test: `Fieldrunner.x86_64 -batchmode -nographics --gameplay-selftest -logFile <path>`.
+- Hotkeys: F7 respawns fuel (practice), F8 drops a ball ahead of the robot (`Debug.isDebugBuild` only, so not in the
+  release player; use `spawnFuel` there). Game args: `--gameplay-selftest`.
 
 ## Collisions (phase 3)
 
