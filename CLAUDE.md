@@ -4,13 +4,21 @@ Read README.md first: architecture, tasks, protocol. Phase specs live in `docs/s
 
 ## Ground rules
 
-- **Robot code stays unmodified.** The changes in `../FRC-2026` (branch `feature/driver-sim`) are the guarded
-  `apply from` line at the end of `build.gradle` and one sim-only constant the user approved: `DRIVE_INERTIA` in
-  `CompbotTunerConstants` (0.0367 kg m^2 = robot mass x wheel radius^2 / 4, so the CTRE swerve sim accelerates like the
-  real robot; Phoenix uses it only in simulation). Anything else sim-specific lives here, in `bridge/` or `gradle/`.
-- **All code follows the team style guide, `../FRC/STYLE.md`** (FRC 5735 Control Freaks). Read it before writing
-  code here. Java follows it as written and is formatted with `scripts/format.java.sh` (clang-format, the team's
-  `.clang-format`, BlockIndent / 120 columns). C# (Unity) and other code follow the same rules, mapped as:
+- **The simulated world lives in the robot code, behavior code stays untouched.** `../FRC-2026` (branch
+  `feature/driver-sim`) carries the guarded `apply from` line at the end of `build.gradle`, the sim-only constant
+  `DRIVE_INERTIA` in `CompbotTunerConstants` (0.0367 kg m^2 = robot mass x wheel radius^2 / 4, so the CTRE swerve sim
+  accelerates like the real robot), and each subsystem's own simulation: private sim fields (plain WPILib / CTRE / REV
+  sims, no Unity knowledge) stepped in its `simulationPeriodic()`, sim-only numbers written as literals where they're used, and a few public `fr`-prefixed methods (`frGetSimTruthPose()`, `frSimPush(...)`,
+  `frGetSimAngleRobotRel()`, ...) that only the Fieldrunner bridge calls. `Robot` has no sim hooks
+  (`simulationPeriodic` is empty). Nothing else in robot code changes. A subsystem's sim reads only actuator outputs
+  and writes only sensors; it never calls `resetPose`, `seedFieldCentric`, `setYaw` or `addVisionMeasurement` and never
+  reads the pose estimate. The bridge in `bridge/` is only the game link: NT protocol, driver station, match, game
+  commands, collision corrections and placement.
+- **Code added to FRC-2026 follows `docs/specs/frc-2026-style.md`** (the repo's own house style), not `FRC/STYLE.md`.
+- **Bridge Java and Unity C# follow the team style guide, `../FRC/STYLE.md`** (FRC 5735 Control Freaks). Read it before
+  writing code here. Java follows it as written and is formatted with clang-format and the team's `.clang-format`
+  (BlockIndent / 120 columns; `scripts/format.java.sh` also commits, so run `clang-format --style=file:.clang-format -i`
+  on the files you changed instead). C# (Unity) and other code follow the same rules, mapped as:
   - no ternaries or value-computing `&&`/`||`; assign a default, then override in an `if`;
   - no composed calls `f(g(x))`, no LINQ/streams: name each intermediate;
   - methods are verbs (`Get`/`Set`/`Is`/`Has`/`Compute`/`Make`/`Update`/`Convert`/`Check`...); class state is read
@@ -19,6 +27,8 @@ Read README.md first: architecture, tasks, protocol. Phase specs live in `docs/s
   - structured results are records: Java `record`, C# `readonly struct` with get-only properties set by its
     constructor;
   - units and frames in names (`headingFieldRad`, `eyeHeightM`, `turretRobotRelRad`); durations in seconds;
+  - comments say what the code does, never defend it: no answers to unasked questions, no lists of what it doesn't
+    do, no reassuring rationale (example in `docs/specs/frc-2026-style.md`); real gotchas stay;
   - mini blocks with a short comment each; doc comments (Javadoc / C# XML) lead with meaning, one sentence per
     parameter, units and frames stated; no history in comments;
   - class layout: fields (trailing comments), constructor / Unity messages, public API, private stateful helpers,
@@ -35,9 +45,9 @@ Read README.md first: architecture, tasks, protocol. Phase specs live in `docs/s
 ```bash
 export JAVA_HOME=~/.local/jdk-17 PATH=~/.local/jdk-17/bin:$PATH   # this machine has no system JDK
 ./gradlew testDriverSim          # unit tests
-./gradlew selfTestDriverSim      # headless end-to-end check against the real robot code; must print 12/12
+./gradlew selfTestDriverSim      # headless end-to-end check against the real robot code; must print 15/15
                                  # also prints [Driver-Sim drive-feel] lines (time to speed, accel, stopping)
-./gradlew selfTestDriverSimWithGame   # same plus the built Unity game (needs scripts/build-unity.sh linux); must print 18/18
+./gradlew selfTestDriverSimWithGame   # same plus the built Unity game (needs scripts/build-unity.sh linux); must print 23/23
 ```
 
 Redirect Gradle output to a file and grep it; sim runs are chatty. `simulateDriverSim` opens the game window on the
@@ -64,8 +74,20 @@ the README's controls table).
   button it presses schedules a robot command needing the same subsystems.
 - The robot code's launch command forces feeding after 1 s (`timeOut > 1`); the self-test checks the
   `launchCalc/*Check` values before that, so gating is verified on its own merits.
-- `TalonMechanismLink` works in the mechanism frame: sign flips for `Clockwise_Positive` devices happen there, and
-  rotor motion is written as deltas so the robot code's `setPosition` calls (zeroing) keep working.
+- Each subsystem's sim in FRC-2026 works in the mechanism frame: sign flips for `Clockwise_Positive` devices happen in
+  its `simulationPeriodic()`, and the rotor is written with `setRawRotorPosition` counted from where the mechanism
+  started. The robot code's
+  `setPosition` calls (turret and intake zeroing) then only move its belief (an offset on the device), which the
+  self-test's "belief matches truth" steps check.
+- Placing the robot is the bridge acting as the drive team: `DriverSimBridge.placeRobot` sets the truth pose and also
+  `resetPose` on the robot code. Self-test code must place through it, and read positions from
+  `robot.drivetrain.frGetSimTruthPose()` unless the check is about what the robot believes.
+- The robot code ignores Limelight frames while the robot is within about 0.65 m of a wall (its "in field" check), so
+  the estimate cannot recover while the robot sits flush against a wall; the wall self-test step drives off the wall
+  first. A heading reset (Back) is also undone within a few loops by vision, so the Back step switches the robot
+  code's `/vision/enabled` off while it checks.
+- The robot code rejects vision frames while the Pigeon reports rotation (it compares deg/s with a rad/s limit), so the
+  estimate converges while driving straight or holding still.
 
 ## Unity game
 
@@ -121,9 +143,13 @@ the README's controls table).
 - `Physics.ComputePenetration` needs a collider for the robot: `RobotCollision` keeps an 8 m tall trigger box proxy,
   used only with explicit positions. With a robot-height (0.5 m) box, a deep overlap (a `resetPose` into the hub) picks
   the vertical exit and the horizontal push is lost. `OverlapBox` needs the `...NonAlloc` variant in this Unity version.
-- `PoseCorrector.record` expects the pose to include the corrections already requested; it treats the rest of a jump as
-  an outside reset and then ignores corrections for older states. Self-test `resetPose` calls (not via the bridge) are
-  caught that way. The drivetrain's pose reflected `resetPose` by the next bridge update in every run so far.
+- `PoseCorrector.record` expects the true pose to include the corrections already requested (translation and
+  heading); only `markDiscontinuity` (placement) may move the truth discontinuously.
+- Collision rotation acts at the robot's deepest corner (the middle of the corners within 1 cm of the deepest), not at
+  `ClosestPoint(robotCenter)`: that point is straight out from the center on a flat wall, so it never produced a torque.
+  Tuned values: `CollisionTurnGain` 1.0 (a 30 degree corner hit swings flush in about 0.8 s through the correction
+  round trip), `MaxTurnRadPerFrame` 0.05, `WallFriction` 0.5. The gyro never feels the turn, so after a corner hit the
+  robot code's heading estimate is off until vision (or the driver's Back) corrects it.
 - A game run with `-batchmode -nographics` (what `selfTestDriverSimWithGame` uses) has no frame cap; `DriverSimLink` caps
   it at 60 fps in batch mode so the bridge is not flooded.
 - `Nt4Client` reports connected only after it has announced its publications: the NT server drops values sent on a
@@ -132,7 +158,7 @@ the README's controls table).
   capture runs. It is intermittent and happens before the bridge does anything; wait a few seconds and retry.
 - Bump surfaces are 160 mesh colliders (every mesh under the `GE-26100` nodes) with a `BumpSurface` marker; wheel rays
   keep only those hits.
-- A `resetPose` (self-test, F6 reset, match or practice start) is a teleport: the game never blends render samples across a jump over
+- A placement (self-test, F6 reset, match or practice start) is a teleport: the game never blends render samples across a jump over
   0.5 m, and `PoseCorrector` ignores corrections stamped within 0.05 s after a pose discontinuity. Without both, a
   blended state from either side of the jump gets "corrected" and the robot is moved to a wrong place (it showed up as
   a flaky bump/trench self-test step).

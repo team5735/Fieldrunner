@@ -7,5 +7,6 @@ package driversim.game;
  * @param robotTimestampS Robot clock time of the reported state the game resolved, seconds.
  * @param xFieldM         Constrained robot x, field frame, meters.
  * @param yFieldM         Constrained robot y, field frame, meters.
+ * @param headingFieldRad Constrained robot heading, field frame, radians, counter-clockwise positive.
  */
-public record PoseCorrection(double robotTimestampS, double xFieldM, double yFieldM) {}
+public record PoseCorrection(double robotTimestampS, double xFieldM, double yFieldM, double headingFieldRad) {}

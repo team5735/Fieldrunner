@@ -158,6 +158,7 @@ namespace DriverSim.Game
             {
                 robotLine = MakeRobotLine(robot);
             }
+            string estimateLine = MakeEstimateLine(robot);
             double turretDeg = robot.TurretRobotRelRad * Mathf.Rad2Deg;
             string mechanismLine = string.Format("turret {0:F0} deg  hood {1:F0} deg  flywheel {2:F0} rpm", turretDeg,
                 robot.HoodDeg, robot.FlywheelRpm);
@@ -174,12 +175,29 @@ namespace DriverSim.Game
                 + mismatch
                 + "station: " + stationName + "   view: " + view + "\n"
                 + robotLine + "\n"
+                + estimateLine + "\n"
                 + mechanismLine + "\n"
                 + intakeLine + "\n"
                 + collisionLine + "\n"
                 + "hubs: blue " + blueHub + "   red " + redHub;
-            GUI.Box(new Rect(8, 8, 470, 198), GUIContent.none);
-            GUI.Label(new Rect(16, 12, 460, 190), text, panelStyle);
+            GUI.Box(new Rect(8, 8, 470, 214), GUIContent.none);
+            GUI.Label(new Rect(16, 12, 460, 206), text, panelStyle);
+        }
+
+        /// <summary>How far the robot code's own pose estimate is from where the robot really is, in one line.</summary>
+        /// <param name="robot">Latest robot state, which carries both poses.</param>
+        private string MakeEstimateLine(RobotState robot)
+        {
+            if (!link.HasRobotState())
+            {
+                return "estimate error: n/a";
+            }
+            double dxM = robot.EstimateXFieldM - robot.XFieldM;
+            double dyM = robot.EstimateYFieldM - robot.YFieldM;
+            double errorM = System.Math.Sqrt(dxM * dxM + dyM * dyM);
+            double headingErrorRad = robot.EstimateHeadingFieldRad - robot.HeadingFieldRad;
+            double headingErrorDeg = Mathf.DeltaAngle(0, (float)(headingErrorRad * Mathf.Rad2Deg));
+            return string.Format("estimate error: {0:F2} m, {1:F1} deg", errorM, headingErrorDeg);
         }
 
         /// <summary>Collision state and the correction last sent, in one line.</summary>

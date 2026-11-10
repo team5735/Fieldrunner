@@ -175,14 +175,15 @@ namespace DriverSim.Net
         }
 
         /// <summary>
-        /// Tells the robot code where the robot should have been at a past instant, after the game resolved collisions.
-        /// The bridge moves the robot code's pose to match. Dropped while disconnected; repeats of the same timestamp
+        /// Tells the simulated robot where it should have been at a past instant, after the game resolved collisions.
+        /// The bridge moves and turns the robot's true pose to match. Dropped while disconnected; repeats of the same timestamp
         /// are not sent.
         /// </summary>
         /// <param name="timestampS">Robot-clock time of the reported state that was resolved, seconds.</param>
         /// <param name="xFieldM">Constrained robot x, field frame, meters.</param>
         /// <param name="yFieldM">Constrained robot y, field frame, meters.</param>
-        public void SendPoseCorrection(double timestampS, double xFieldM, double yFieldM)
+        /// <param name="headingFieldRad">Constrained robot heading, field frame, radians, CCW positive.</param>
+        public void SendPoseCorrection(double timestampS, double xFieldM, double yFieldM, double headingFieldRad)
         {
             if (client == null || timestampS <= lastCorrectionTimestampS)
             {
@@ -190,7 +191,7 @@ namespace DriverSim.Net
             }
             lastCorrectionTimestampS = timestampS;
             correctionCount++;
-            double[] correction = { timestampS, xFieldM, yFieldM };
+            double[] correction = { timestampS, xFieldM, yFieldM, headingFieldRad };
             client.SendDoubleArray(correctionPublisher, correction);
         }
 

@@ -26,7 +26,10 @@ namespace DriverSim.Net
             double spindexWheelVolts,
             double climberExtension,
             bool isEnabled,
-            bool isAutonomous)
+            bool isAutonomous,
+            double estimateXFieldM,
+            double estimateYFieldM,
+            double estimateHeadingFieldRad)
         {
             TimestampS = timestampS;
             XFieldM = xFieldM;
@@ -45,18 +48,21 @@ namespace DriverSim.Net
             ClimberExtension = climberExtension;
             IsEnabled = isEnabled;
             IsAutonomous = isAutonomous;
+            EstimateXFieldM = estimateXFieldM;
+            EstimateYFieldM = estimateYFieldM;
+            EstimateHeadingFieldRad = estimateHeadingFieldRad;
         }
 
         /// <summary>Robot clock, seconds.</summary>
         public double TimestampS { get; }
 
-        /// <summary>Robot x, field frame, meters.</summary>
+        /// <summary>True robot x, field frame, meters.</summary>
         public double XFieldM { get; }
 
-        /// <summary>Robot y, field frame, meters.</summary>
+        /// <summary>True robot y, field frame, meters.</summary>
         public double YFieldM { get; }
 
-        /// <summary>Robot heading, field frame, radians, counter-clockwise positive.</summary>
+        /// <summary>True robot heading, field frame, radians, counter-clockwise positive.</summary>
         public double HeadingFieldRad { get; }
 
         /// <summary>Robot velocity along field x, meters/s.</summary>
@@ -98,6 +104,15 @@ namespace DriverSim.Net
         /// <summary>Whether the robot is in autonomous.</summary>
         public bool IsAutonomous { get; }
 
+        /// <summary>Where the robot code believes it is, x, field frame, meters.</summary>
+        public double EstimateXFieldM { get; }
+
+        /// <summary>Where the robot code believes it is, y, field frame, meters.</summary>
+        public double EstimateYFieldM { get; }
+
+        /// <summary>The robot code's heading estimate, field frame, radians, counter-clockwise positive.</summary>
+        public double EstimateHeadingFieldRad { get; }
+
         /// <summary>
         /// Decodes the bridge's robot-state array.
         /// </summary>
@@ -130,7 +145,10 @@ namespace DriverSim.Net
                 values[RobotStateLayout.SpindexWheelV],
                 values[RobotStateLayout.ClimberExtension],
                 isEnabled,
-                isAutonomous);
+                isAutonomous,
+                values[RobotStateLayout.EstimateXM],
+                values[RobotStateLayout.EstimateYM],
+                values[RobotStateLayout.EstimateHeadingRad]);
             return true;
         }
 
@@ -146,6 +164,7 @@ namespace DriverSim.Net
         {
             double headingRad = InterpolateAngle(a.HeadingFieldRad, b.HeadingFieldRad, t);
             double turretRad = InterpolateAngle(a.TurretRobotRelRad, b.TurretRobotRelRad, t);
+            double estimateHeadingRad = InterpolateAngle(a.EstimateHeadingFieldRad, b.EstimateHeadingFieldRad, t);
             return new RobotState(
                 InterpolateValue(a.TimestampS, b.TimestampS, t),
                 InterpolateValue(a.XFieldM, b.XFieldM, t),
@@ -163,7 +182,10 @@ namespace DriverSim.Net
                 b.SpindexWheelVolts,
                 InterpolateValue(a.ClimberExtension, b.ClimberExtension, t),
                 b.IsEnabled,
-                b.IsAutonomous);
+                b.IsAutonomous,
+                InterpolateValue(a.EstimateXFieldM, b.EstimateXFieldM, t),
+                InterpolateValue(a.EstimateYFieldM, b.EstimateYFieldM, t),
+                estimateHeadingRad);
         }
 
         // ---- low-level helpers (static, no side effects)

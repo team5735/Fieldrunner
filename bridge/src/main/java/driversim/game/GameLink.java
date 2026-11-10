@@ -21,7 +21,7 @@ import driversim.InputOwner;
  * <p>
  * Bridge to game:
  * <ul>
- * <li>{@code /DriverSim/robot/state} (double[]) - robot pose and mechanisms; layout in {@link RobotStateLayout}.</li>
+ * <li>{@code /DriverSim/robot/state} (double[]) - true robot pose, the robot's own estimate and mechanisms; layout in {@link RobotStateLayout}.</li>
  * <li>{@code /DriverSim/match/state} (double[]) - match phase and hubs; layout in {@link MatchStateLayout}.</li>
  * <li>{@code /DriverSim/bridge/info} (string) - {@code "version=<n> input=<owner>"}: protocol version for the game
  * to check compatibility, and who supplies joystick input (see {@link InputOwner}).</li>
@@ -30,14 +30,15 @@ import driversim.InputOwner;
  * Game to bridge:
  * <ul>
  * <li>{@code /DriverSim/game/command} (string) - discrete commands, see {@link GameCommand}.</li>
- * <li>{@code /DriverSim/game/poseCorrection} (double[3]) - {robotTimestampS, xFieldM, yFieldM}: where the robot should
- * have been at that robot-clock time, after the game resolved collisions; see {@link PoseCorrection}.</li>
+ * <li>{@code /DriverSim/game/poseCorrection} (double[4]) - {robotTimestampS, xFieldM, yFieldM, headingFieldRad}: where
+ * the robot should have been at that robot-clock time, after the game resolved collisions; see
+ * {@link PoseCorrection}.</li>
  * <li>{@code /DriverSim/game/joystick0} (double[8]) - the virtual Xbox controller on driver station port 0; see
  * {@link JoystickSample}.</li>
  * </ul>
  */
 public final class GameLink {
-    public static final int PROTOCOL_VERSION = 3;       // bump when any topic layout changes
+    public static final int PROTOCOL_VERSION = 5;       // bump when any topic layout changes
     private static final double STATE_PERIOD_S = 0.01;  // seconds between state sends to the game
     private static final int QUEUE_DEPTH = 128;         // game-to-bridge values buffered between reads
     private static final long SEQ_RESTART_GAP = 1000;   // a sequence this far below the last one is a restarted game
@@ -151,10 +152,10 @@ public final class GameLink {
         List<PoseCorrection> corrections = new ArrayList<>();
         double[][] queued = poseCorrectionSubscriber.readQueueValues();
         for (double[] values : queued) {
-            if (values.length != 3) {
+            if (values.length != 4) {
                 continue;
             }
-            PoseCorrection correction = new PoseCorrection(values[0], values[1], values[2]);
+            PoseCorrection correction = new PoseCorrection(values[0], values[1], values[2], values[3]);
             corrections.add(correction);
         }
         return corrections;

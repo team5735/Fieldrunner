@@ -1,14 +1,15 @@
 package driversim;
 
-import com.ctre.phoenix6.swerve.SwerveDrivetrain.SwerveDriveState;
+import static edu.wpi.first.units.Units.Degrees;
+import static edu.wpi.first.units.Units.Radians;
 
 import edu.wpi.first.hal.AllianceStationID;
 import edu.wpi.first.math.geometry.Pose2d;
 import edu.wpi.first.math.geometry.Rotation2d;
 import edu.wpi.first.math.geometry.Translation2d;
+import edu.wpi.first.math.kinematics.ChassisSpeeds;
 import edu.wpi.first.wpilibj.DriverStation;
 import edu.wpi.first.wpilibj.DriverStation.Alliance;
-import edu.wpi.first.wpilibj.RobotController;
 import edu.wpi.first.wpilibj.Timer;
 import edu.wpi.first.wpilibj.simulation.DriverStationSim;
 
@@ -28,16 +29,17 @@ import driversim.game.MatchStateLayout;
 import driversim.game.MatchStatus;
 import driversim.game.PoseCorrection;
 import driversim.game.PoseCorrector;
+import driversim.game.PoseDelta;
 import driversim.game.RobotStateLayout;
 import driversim.game.RumbleTracker;
 import driversim.game.RumbleValues;
-import driversim.mech.MechanismSnapshot;
-import driversim.mech.RobotMechanismSim;
 
 /**
- * Sim-only glue between the unmodified robot code and the Fieldrunner game. Each {@link #update} it advances the
- * mechanism sim, applies commands from the game (match control, robot placement) and the game's pose corrections
- * (collisions), drives the simulated driver station, and publishes robot and match state over NetworkTables.
+ * Sim-only link between the robot code's simulated world and the Fieldrunner game. Each {@link #update} it applies commands
+ * from the game (match control, robot placement) and the game's pose corrections (collisions move and turn the true
+ * pose), drives the simulated driver station, and publishes the true robot state, the robot code's own estimate and
+ * match state over NetworkTables. The simulated world itself (true pose, mechanisms, sensors) lives in the robot
+ * code's subsystems, each in its own {@code simulationPeriodic}; the bridge reads it through their {@code fr} methods.
  *
  * <p>
  * The {@link InputOwner} decides how much of the driver station the bridge owns. With {@link InputOwner#GAME} it is the
@@ -51,9 +53,6 @@ import driversim.mech.RobotMechanismSim;
  */
 public final class DriverSimBridge {
     public static final double PERIOD_S = 0.005;  // seconds between bridge updates
-    public static final Pose2d DEFAULT_START_POSE_FIELD = new Pose2d(
-        2.0, 4.03, Rotation2d.kZero
-    );  // field frame: blue alliance zone, in front of the blue hub, facing downfield
 
     private static final int JOYSTICK_PORT = 0;        // driver station port of the driver's Xbox controller
     private static final int XINPUT_GAMEPAD_TYPE = 1;  // HAL joystick type of an XInput gamepad
@@ -61,14 +60,13 @@ public final class DriverSimBridge {
 
     private final Robot robot;                     // the robot program; ended through it when the game quits
     private final DrivetrainSubsystem drivetrain;  // the robot's swerve drivetrain (CTRE sim runs its physics)
-    private final RobotMechanismSim mechanisms;    // every non-drivetrain mechanism
     private final MatchController match;           // field-system timing
     private final GameLink link;                   // NetworkTables topics to the game
     private final InputOwner inputOwner;           // who supplies joystick input and free-play enable
     private final JoystickLink joystickLink;       // timing of the game's joystick samples
     private final RumbleTracker rumbleTracker;     // which robot rumble changes the game needs to hear about
     private final PoseCorrector poseCorrector;     // reconciles the robot pose with the game's corrected poses
-    private double lastUpdateS;                    // robot clock at the previous update, seconds
+    private final Pose2d startPoseField;           // where the sim world started the robot, field frame
     private boolean wasFieldControlled;            // whether the previous update had a match driving the DS
     private boolean isGameAttached;                // whether a game has said hello
     private boolean isSelfTestJoystickOn;          // SELFTEST owner only: whether the game's joystick is applied
@@ -82,19 +80,18 @@ public final class DriverSimBridge {
     public DriverSimBridge(Robot robot, InputOwner inputOwner) {
         this.robot = robot;
         this.drivetrain = robot.drivetrain;
-        this.mechanisms = new RobotMechanismSim(robot.spindex);
         this.match = new MatchController(PERIOD_S);
         this.inputOwner = inputOwner;
         this.link = new GameLink(inputOwner);
         this.joystickLink = new JoystickLink();
         this.rumbleTracker = new RumbleTracker();
         this.poseCorrector = new PoseCorrector();
-        this.lastUpdateS = Timer.getFPGATimestamp();
         this.wasFieldControlled = false;
         this.isGameAttached = false;
         this.isSelfTestJoystickOn = false;
 
-        drivetrain.resetPose(DEFAULT_START_POSE_FIELD);
+        this.startPoseField = drivetrain.frGetSimTruthPose();
+        placeRobot(startPoseField);
 
         // the game owns the driver station: an Xbox controller on port 0, on the blue 1 station until told otherwise
         if (inputOwner == InputOwner.GAME) {
@@ -107,14 +104,7 @@ public final class DriverSimBridge {
 
     /** Advances the sim by one bridge period; call from the robot's main loop thread. */
     public void update() {
-        // time step
         double nowS = Timer.getFPGATimestamp();
-        double dtS = nowS - lastUpdateS;
-        lastUpdateS = nowS;
-
-        // mechanisms
-        double batteryVolts = RobotController.getBatteryVoltage();
-        mechanisms.update(batteryVolts, dtS);
 
         // game commands
         List<GameCommand> commands = link.takeCommands();
@@ -138,19 +128,17 @@ public final class DriverSimBridge {
             match.pause(nowS);
         }
 
-        // collision corrections from the game, reconciled against the pose history
-        Pose2d poseField = drivetrain.getState().Pose;
-        poseCorrector.record(nowS, poseField.getTranslation());
+        // collision corrections from the game move the true pose, reconciled against the truth history
+        Pose2d truthPoseField = drivetrain.frGetSimTruthPose();
+        poseCorrector.record(nowS, truthPoseField);
         List<PoseCorrection> corrections = link.takePoseCorrections();
-        Translation2d totalTranslationField = Translation2d.kZero;
+        PoseDelta total = PoseDelta.NONE;
         for (PoseCorrection correction : corrections) {
-            Translation2d translationField = poseCorrector.computeCorrection(correction);
-            totalTranslationField = totalTranslationField.plus(translationField);
+            PoseDelta delta = poseCorrector.computeCorrection(correction);
+            total = total.plus(delta);
         }
-        if (totalTranslationField.getNorm() > 0) {
-            Translation2d correctedPositionField = poseField.getTranslation().plus(totalTranslationField);
-            Pose2d correctedPoseField = new Pose2d(correctedPositionField, poseField.getRotation());
-            drivetrain.resetPose(correctedPoseField);
+        if (total.isMoving()) {
+            drivetrain.frSimPush(total.translationField(), total.rotation());
         }
 
         // match timing drives the driver station while a match runs
@@ -167,15 +155,37 @@ public final class DriverSimBridge {
         }
 
         // publish to the game
-        MechanismSnapshot snapshot = mechanisms.getSnapshot();
-        SwerveDriveState driveState = drivetrain.getState();
+        Pose2d truthNowField = drivetrain.frGetSimTruthPose();
+        ChassisSpeeds truthSpeedsRobot = drivetrain.getState().Speeds;
+        Pose2d estimatePoseField = drivetrain.getState().Pose;
         boolean isEnabled = DriverStation.isEnabled();
         boolean isAutonomous = DriverStation.isAutonomous();
-        double[] robotState = makeRobotState(nowS, driveState, snapshot, isEnabled, isAutonomous);
+        double[] robotState =
+            makeRobotState(nowS, truthNowField, truthSpeedsRobot, estimatePoseField, robot, isEnabled, isAutonomous);
         link.publishRobotState(robotState);
         int stationIndex = computeStationIndex();
         double[] matchState = makeMatchState(status, stationIndex);
         link.publishMatchState(matchState);
+    }
+
+    /**
+     * Reports where the sim world started the robot.
+     *
+     * @return Start pose, field frame.
+     */
+    public Pose2d getStartPoseField() { return startPoseField; }
+
+    /**
+     * Puts the robot at a spot, the way the drive team would: the robot is carried there (truth) and the driver
+     * starts from a known place (the robot code's pose estimate is reset to match).
+     *
+     * @param poseField Where to put the robot, field frame.
+     */
+    public void placeRobot(Pose2d poseField) {
+        drivetrain.frSimPlace(poseField);
+        drivetrain.resetPose(poseField);
+        double nowS = Timer.getFPGATimestamp();
+        poseCorrector.markDiscontinuity(nowS);
     }
 
     /**
@@ -201,13 +211,6 @@ public final class DriverSimBridge {
         double nowS = Timer.getFPGATimestamp();
         return match.getStatus(nowS);
     }
-
-    /**
-     * Reports the mechanisms' current state.
-     *
-     * @return Snapshot as of the last update.
-     */
-    public MechanismSnapshot getMechanismSnapshot() { return mechanisms.getSnapshot(); }
 
     /**
      * Turns the application of the game's joystick on or off in a self-test run, so the self-test can check that the
@@ -252,7 +255,7 @@ public final class DriverSimBridge {
         switch (command.verb()) {
         case START -> match.start(nowS);
         case ABORT -> match.abort(nowS);
-        case BALL_LAUNCHED -> mechanisms.applyBallLaunched();
+        case BALL_LAUNCHED -> robot.launcher.frSimBallLaunched();
         case HELLO -> isGameAttached = true;
         case PRACTICE -> match.setPracticeEnabled(true);
         case DISABLE -> match.setPracticeEnabled(false);
@@ -277,8 +280,7 @@ public final class DriverSimBridge {
         }
         case RESET_POSE -> {
             Pose2d poseField = command.poseField();
-            drivetrain.resetPose(poseField);
-            poseCorrector.markDiscontinuity(nowS);
+            placeRobot(poseField);
         }
         case QUIT -> {
             // end the robot loop and let WPILib shut down in order (it stops the sim GUI, then the HAL, then exits);
@@ -387,43 +389,48 @@ public final class DriverSimBridge {
     /**
      * Lays out the robot state array for the game.
      *
-     * @param nowS         Robot clock, seconds.
-     * @param driveState   CTRE drivetrain state: pose (field frame) and chassis speeds (robot frame).
-     * @param snapshot     Mechanism state.
-     * @param isEnabled    Whether the robot is enabled.
-     * @param isAutonomous Whether the robot is in autonomous.
+     * @param nowS              Robot clock, seconds.
+     * @param truthPoseField    True robot pose, field frame.
+     * @param truthSpeedsRobot  True chassis speeds, robot frame.
+     * @param estimatePoseField The robot code's own pose estimate, field frame.
+     * @param robot             The robot, whose subsystems hold their mechanisms' true state.
+     * @param isEnabled         Whether the robot is enabled.
+     * @param isAutonomous      Whether the robot is in autonomous.
      * @return Values laid out per {@link RobotStateLayout}.
      */
     private static double[] makeRobotState(
-        double nowS, SwerveDriveState driveState, MechanismSnapshot snapshot, boolean isEnabled, boolean isAutonomous
+        double nowS, Pose2d truthPoseField, ChassisSpeeds truthSpeedsRobot, Pose2d estimatePoseField, Robot robot,
+        boolean isEnabled, boolean isAutonomous
     ) {
-        // chassis velocity, robot frame to field frame
-        Pose2d poseField = driveState.Pose;
-        Rotation2d headingField = poseField.getRotation();
+        // chassis velocity, robot frame to field frame by the true heading
+        Rotation2d headingField = truthPoseField.getRotation();
         Translation2d velocityRobot =
-            new Translation2d(driveState.Speeds.vxMetersPerSecond, driveState.Speeds.vyMetersPerSecond);
+            new Translation2d(truthSpeedsRobot.vxMetersPerSecond, truthSpeedsRobot.vyMetersPerSecond);
         Translation2d velocityField = velocityRobot.rotateBy(headingField);
 
         // lay out the array
         double[] state = new double[RobotStateLayout.LENGTH];
         state[RobotStateLayout.PROTOCOL_VERSION] = GameLink.PROTOCOL_VERSION;
         state[RobotStateLayout.TIMESTAMP_S] = nowS;
-        state[RobotStateLayout.POSE_X_M] = poseField.getX();
-        state[RobotStateLayout.POSE_Y_M] = poseField.getY();
+        state[RobotStateLayout.POSE_X_M] = truthPoseField.getX();
+        state[RobotStateLayout.POSE_Y_M] = truthPoseField.getY();
         state[RobotStateLayout.HEADING_RAD] = headingField.getRadians();
         state[RobotStateLayout.VELOCITY_X_MPS] = velocityField.getX();
         state[RobotStateLayout.VELOCITY_Y_MPS] = velocityField.getY();
-        state[RobotStateLayout.OMEGA_RADPS] = driveState.Speeds.omegaRadiansPerSecond;
-        state[RobotStateLayout.TURRET_ROBOT_REL_RAD] = snapshot.turretAngleRobotRelRadians();
-        state[RobotStateLayout.HOOD_DEG] = snapshot.hoodAngleDegrees();
-        state[RobotStateLayout.FLYWHEEL_RPM] = snapshot.flywheelRpm();
-        state[RobotStateLayout.INTAKE_ARM_DEG] = snapshot.intakeArmAngleDegrees();
-        state[RobotStateLayout.INTAKE_ROLLER_V] = snapshot.intakeRollerVolts();
-        state[RobotStateLayout.SPINDEX_FEED_V] = snapshot.spindexFeedVolts();
-        state[RobotStateLayout.SPINDEX_WHEEL_V] = snapshot.spindexWheelVolts();
-        state[RobotStateLayout.CLIMBER_EXTENSION] = snapshot.climberExtension();
+        state[RobotStateLayout.OMEGA_RADPS] = truthSpeedsRobot.omegaRadiansPerSecond;
+        state[RobotStateLayout.TURRET_ROBOT_REL_RAD] = robot.turret.frGetSimAngleRobotRel().in(Radians);
+        state[RobotStateLayout.HOOD_DEG] = robot.hood.frGetSimAngle().in(Degrees);
+        state[RobotStateLayout.FLYWHEEL_RPM] = robot.launcher.frGetSimRpm();
+        state[RobotStateLayout.INTAKE_ARM_DEG] = robot.intake.frGetSimArmAngle().in(Degrees);
+        state[RobotStateLayout.INTAKE_ROLLER_V] = robot.intake.frGetSimRollerVolts();
+        state[RobotStateLayout.SPINDEX_FEED_V] = robot.spindex.frGetSimFeedVolts();
+        state[RobotStateLayout.SPINDEX_WHEEL_V] = robot.spindex.frGetSimWheelVolts();
+        state[RobotStateLayout.CLIMBER_EXTENSION] = robot.climber.frGetSimExtension();
         state[RobotStateLayout.IS_ENABLED] = convertToDouble(isEnabled);
         state[RobotStateLayout.IS_AUTONOMOUS] = convertToDouble(isAutonomous);
+        state[RobotStateLayout.ESTIMATE_X_M] = estimatePoseField.getX();
+        state[RobotStateLayout.ESTIMATE_Y_M] = estimatePoseField.getY();
+        state[RobotStateLayout.ESTIMATE_HEADING_RAD] = estimatePoseField.getRotation().getRadians();
         return state;
     }
 

@@ -121,12 +121,14 @@ namespace DriverSim.Robot
             // chassis pose, constrained by the field's obstacles
             double xFieldM = state.XFieldM;
             double yFieldM = state.YFieldM;
+            double headingFieldRad = state.HeadingFieldRad;
             if (collision != null && collision.HasConstrainedPose())
             {
                 xFieldM = collision.GetConstrainedXFieldM();
                 yFieldM = collision.GetConstrainedYFieldM();
+                headingFieldRad = collision.GetConstrainedHeadingFieldRad();
             }
-            Quaternion headingRotation = FieldFrame.ConvertHeadingToRotation(state.HeadingFieldRad);
+            Quaternion headingRotation = FieldFrame.ConvertHeadingToRotation(headingFieldRad);
             body.position = FieldFrame.ConvertFieldToWorld(xFieldM, yFieldM, 0);
             body.rotation = headingRotation;
 

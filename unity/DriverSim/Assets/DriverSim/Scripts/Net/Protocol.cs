@@ -6,13 +6,13 @@ namespace DriverSim.Net
     /// </summary>
     public static class Protocol
     {
-        public const int Version = 3; // GameLink.PROTOCOL_VERSION; must match the bridge
+        public const int Version = 5; // GameLink.PROTOCOL_VERSION; must match the bridge
         public const string Prefix = "/DriverSim/"; // every Fieldrunner topic starts with this
         public const string RobotStateTopic = "/DriverSim/robot/state"; // double[], bridge to game
         public const string MatchStateTopic = "/DriverSim/match/state"; // double[], bridge to game
         public const string BridgeInfoTopic = "/DriverSim/bridge/info"; // string, bridge to game
         public const string CommandTopic = "/DriverSim/game/command"; // string, game to bridge
-        public const string PoseCorrectionTopic = "/DriverSim/game/poseCorrection"; // double[3], game to bridge
+        public const string PoseCorrectionTopic = "/DriverSim/game/poseCorrection"; // double[4], game to bridge
         public const string JoystickTopic = "/DriverSim/game/joystick0"; // double[8], game to bridge
         public const string RumbleTopic = "/DriverSim/robot/rumble"; // double[2], bridge to game
     }
@@ -24,9 +24,9 @@ namespace DriverSim.Net
     {
         public const int ProtocolVersion = 0; // GameLink.PROTOCOL_VERSION
         public const int TimestampS = 1; // robot clock, seconds
-        public const int PoseXM = 2; // field frame (wpiBlue), meters
-        public const int PoseYM = 3; // field frame, meters
-        public const int HeadingRad = 4; // field frame, radians, CCW positive
+        public const int PoseXM = 2; // true pose, field frame (wpiBlue), meters
+        public const int PoseYM = 3; // true pose, field frame, meters
+        public const int HeadingRad = 4; // true heading, field frame, radians, CCW positive
         public const int VelocityXMps = 5; // field frame, meters/s
         public const int VelocityYMps = 6; // field frame, meters/s
         public const int OmegaRadps = 7; // radians/s, CCW positive
@@ -40,7 +40,10 @@ namespace DriverSim.Net
         public const int ClimberExtension = 15; // travel, 0 retracted .. 1 extended
         public const int IsEnabled = 16; // 1 when enabled
         public const int IsAutonomous = 17; // 1 in autonomous
-        public const int Length = 18; // number of values
+        public const int EstimateXM = 18; // the robot code's own pose estimate, field frame, meters
+        public const int EstimateYM = 19; // the robot code's own pose estimate, field frame, meters
+        public const int EstimateHeadingRad = 20; // the robot code's own heading estimate, radians, CCW positive
+        public const int Length = 21; // number of values
     }
 
     /// <summary>

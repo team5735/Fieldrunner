@@ -5,23 +5,33 @@ same controller, same bindings, same drive tuning — in WPILib simulation, whil
 driver station, simulates fuel and scoring, and runs matches.
 
 ```
-Unity game (unity/DriverSim): menus, controller / keyboard input, field, fuel, scoring, HUD, driver-station camera
-   ▲ NetworkTables 4 (/DriverSim/*): robot + match state, rumble        │ virtual Xbox controller, commands, pose corrections
-   │                                                                    ▼
-  FRC-2026 robot code, unmodified, in WPILib sim
-   + Fieldrunner bridge (this repo, sim-only Java) = the driver station
+Unity game (unity/DriverSim): menus, controller / keyboard input, field, fuel, scoring, HUD, driver-station camera,
+collisions (optional: the sim runs without it)
+   ▲ NetworkTables 4 (/DriverSim/*): true robot state, robot's own estimate,  │ virtual Xbox controller, commands,
+   │ match state, rumble                                                      │ collision corrections (move + turn)
+   │                                                                          ▼
+  FRC-2026 robot code in WPILib sim; each subsystem's simulationPeriodic() = ground truth (no Unity knowledge)
+       • DrivetrainSubsystem: the true pose, from the simulated swerve modules; pushed by Unity's collisions
+       • Turret, Hood, Launcher, Intake, SpinDex, Climber subsystems: WPILib sims -> Talon / Spark / DIO / analog sensors
+       • LimelightSubsystem: true pose + noise -> Limelight NetworkTables
+   + Fieldrunner bridge (this repo, sim-only Java) = the driver station and the game link
        • driver station: the game's controller becomes joystick port 0; enable, mode, alliance station, pauses
-       • mechanism sim: turret, hood, flywheel, intake, spindex, climber sensors
        • field system: match timing, game message, hub shifts
-       • game hooks: robot placement, pose corrections from Unity's collisions, flywheel loss per shot
+       • game hooks: robot placement, collision corrections into the true pose, flywheel loss per shot
 ```
 
-The robot code owns robot motion (CTRE's swerve sim), so drive feel matches the real robot. The game owns the world.
+The robot code owns robot motion (CTRE's swerve sim), so drive feel matches the real robot. The sim in the robot code
+owns what is true (where the robot really is, how every mechanism really moves); the robot code only sees sensors, so
+its pose estimate can be wrong (a reset, a wall hit, gyro drift) without moving the real robot. The game owns the rest
+of the world (fuel, field, collisions, scoring) and feeds collisions back into the truth. Plain `./gradlew simulateJava`
+runs the same sim with no Unity: `SimTruth` and the robot's estimate show up side by side in Glass or AdvantageScope.
 
 ## Code style
 
-All code follows the team style guide, [`FRC/STYLE.md`](../FRC/STYLE.md); Java is formatted with
-`scripts/format.java.sh` (clang-format with the team's `.clang-format`). See CLAUDE.md for how the rules map to C#.
+Bridge Java and Unity C# follow the team style guide, [`FRC/STYLE.md`](../FRC/STYLE.md); Java is formatted with
+clang-format and the team's `.clang-format` (`scripts/format.java.sh`). See CLAUDE.md for how the rules map to C#. Code
+added to the robot repo (each subsystem's sim) follows that repo's own style, written down in
+[`docs/specs/frc-2026-style.md`](docs/specs/frc-2026-style.md).
 
 ## Status
 
@@ -32,6 +42,7 @@ All code follows the team style guide, [`FRC/STYLE.md`](../FRC/STYLE.md); Java i
 | 3 | Collisions: walls, hub, tower, trench, bumps | done |
 | 3b | Game shell: title, station picker, pause, controls and options screens; controller and keyboard input; the bridge is the driver station (no sim GUI) | done |
 | 3c | Controllers screen: choose which device drives (keyboard or one controller) | done |
+| 3d | Sim truth: ground truth (pose, mechanisms, Limelight) in each robot-code subsystem's `simulationPeriodic()`; collisions turn and slow the true robot; the bridge is only the game link | done |
 | 4 | Gameplay: fuel, intake, shooting, scoring, HUD | |
 | 5 | Packaging: Windows/Linux builds, run scripts | |
 
@@ -40,13 +51,13 @@ All code follows the team style guide, [`FRC/STYLE.md`](../FRC/STYLE.md); Java i
 ```
 bridge/src/main/java/driversim/      bridge (compiled inside the robot project as the "driverSim" source set)
   DriverSimMain.java                 entry point: builds Robot like frc.robot.Main, attaches the bridge
-  DriverSimBridge.java               per-loop glue: mechanisms, commands, DS, publishing
+  DriverSimBridge.java               per-loop glue: commands, placement, corrections, DS, publishing
   SelfTest.java                      scripted headless check against the real robot code
-  mech/                              mechanism models and device links
   InputOwner.java                    who supplies joystick input: game, gui or selftest
-  game/                              match controller, NT topics and layouts, command parser, joystick link
+  game/                              match controller, NT topics and layouts, command parser, joystick link, pose corrector
   tools/NtProbe.java                 CLI that connects like the game does
 bridge/src/test/java/                unit tests for the pure logic
+../FRC-2026/src/main/java/frc/robot/subsystems/   ground truth in the robot code: each subsystem's simulationPeriodic() and fr methods
 gradle/driversim.gradle              applied from the robot project's build.gradle
 unity/DriverSim/                     Unity 6 (6000.6.8f1) URP project
   Assets/DriverSim/Scripts/          game code: Net/ (NT4 client, protocol), Field/ (frame, obstacle layout), Robot/ (model, collision), Game/ (flow, input, menus), Util/
@@ -62,7 +73,7 @@ docs/screenshots/                    current renders
 ## Setup
 
 1. Clone this repo (https://github.com/team5735/Fieldrunner) as `Fieldrunner` next to `FRC-2026` (same parent folder). On FRC-2026, use branch `feature/driver-sim`,
-   whose `build.gradle` ends with one guarded line:
+   which carries the per-subsystem sims and whose `build.gradle` ends with one guarded line:
    `if (file('../Fieldrunner/gradle/driversim.gradle').exists()) { apply from: '../Fieldrunner/gradle/driversim.gradle' }`
 2. A JDK 17 (the WPILib 2026 one is fine). Gradle downloads everything else.
 3. For the game (phase 2+): Unity Hub + Unity 6 LTS (6000.0.x) with Linux, Windows and/or Mac Build Support (Mono).
@@ -115,12 +126,12 @@ Unity world = field center origin, X = field x, Z = field y, Y = up (`Field/Fiel
 |---|---|
 | `./gradlew simulateDriverSim` | Robot code + bridge in WPILib sim and the Unity game (if built): one window, the game. The bridge is the driver station; no sim GUI. |
 | `./gradlew simulateDriverSim -PdriverSimGui` | The same plus the WPILib sim GUI, which then supplies joysticks and enable (for debugging; the game's controller and enable commands are ignored; matches still run from the game). Standalone Glass or AdvantageScope can attach to NT without it. |
-| `./gradlew selfTestDriverSim` | Headless scripted check (turret zero, intake, flywheel, hood, climber, driving, shot gating, match). Fails on any step. Also prints a drive-feel measurement (see Drivetrain sim). |
-| `./gradlew selfTestDriverSimWithGame` | The self-test plus the built Unity game (headless): waits for the game's `hello`, then checks walls, hub, trench and bumps against the robot code's pose. 18 steps. |
+| `./gradlew selfTestDriverSim` | Headless scripted check (turret zero, intake, flywheel, hood, climber, driving, Back leaves the true pose alone, shot gating, match). Fails on any step. 15 steps. Also prints a drive-feel measurement (see Drivetrain sim). |
+| `./gradlew selfTestDriverSimWithGame` | The self-test plus the built Unity game (headless): waits for the game's `hello`, then checks walls, hub, trench and bumps against the true pose, that the robot code's estimate recovers after a wall, and that a corner hit turns the truth but not the gyro. 23 steps. |
 | `./gradlew testDriverSim` | Bridge unit tests. |
 | `./gradlew probeDriverSim -Pargs="30,station R1,start"` | While a sim runs: print `/DriverSim` state, send game commands. |
 
-`./gradlew simulateJava` is unchanged and does not include the bridge.
+`./gradlew simulateJava` runs the robot code with its own sim (each subsystem's `simulationPeriodic()`: truth, mechanisms, Limelights) but without the bridge or the game.
 
 ### Controller and keyboard
 
@@ -173,7 +184,7 @@ The bridge has one input owner, set by `simulateDriverSim` / the self-tests thro
 | `gui` | `simulateDriverSim -PdriverSimGui` | the WPILib sim GUI; the game shows a notice and sends no controller values. In `gui` mode, drag your Xbox controller onto **Joystick 0** in the sim GUI's **System Joysticks** panel and check **Map gamepad** |
 | `selftest` | `selfTestDriverSim*` | the self-test script (and the game's joystick topic during its one joystick step) |
 
-The bridge publishes the owner in `bridge/info` (`version=3 input=game`).
+The bridge publishes the owner in `bridge/info` (`version=5 input=game`).
 
 ### Matches and free practice
 
@@ -190,29 +201,36 @@ loop, so stop a match from the game with `abort`, not the GUI).
 
 | Topic | Type | Direction | Contents |
 |---|---|---|---|
-| `robot/state` | double[] | bridge → game | pose, velocity, mechanisms, enable/mode — `game/RobotStateLayout.java` |
+| `robot/state` | double[] | bridge → game | true pose and velocity, mechanisms, enable/mode, the robot code's own pose estimate — `game/RobotStateLayout.java` |
 | `match/state` | double[] | bridge → game | phase, match time, hub activity, station, auto winner, is-paused — `game/MatchStateLayout.java` |
 | `robot/rumble` | double[2] | bridge → game | `{left, right}` controller rumble, 0..1, published on change |
-| `bridge/info` | string | bridge → game | `"version=3 input=<game\|gui\|selftest>"` |
+| `bridge/info` | string | bridge → game | `"version=5 input=<game\|gui\|selftest>"` |
 | `game/joystick0` | double[8] | game → bridge | `{leftX, leftY, leftTrigger, rightTrigger, rightX, rightY, buttonBits, povDeg}` in WPILib Xbox conventions (forward stick negative; buttons bit 0..9 = A B X Y LB RB Back Start stick-presses; POV degrees clockwise from up, -1 released), every frame at most 100 Hz; sent only when `input=game` |
 | `game/command` | string | game → bridge | `"<seq> <verb> [args]"`: `hello` (on every connect), `start`, `abort`, `station R2`, `autoWinner B`, `resetPose x y heading`, `ballLaunched`, `quit`; `practice`, `disable`, `pause`, `resume` (only with owner `game`) |
-| `game/poseCorrection` | double[3] | game → bridge | `{robotTimestampS, xFieldM, yFieldM}`: where the robot should have been at that robot-clock time after Unity resolved collisions |
+| `game/poseCorrection` | double[4] | game → bridge | `{robotTimestampS, xFieldM, yFieldM, headingFieldRad}`: where the robot should have been at that robot-clock time after Unity resolved collisions |
 
 ### Collisions
 
-Unity owns the world: every frame it resolves the robot's reported pose against obstacle colliders (`FieldObstacle`;
-table in `Field/FieldObstacleLayout.cs`), draws the constrained pose, and sends a `poseCorrection` when it moved the
-robot. The bridge's `game/PoseCorrector` keeps 2 s of pose history and the total offset it has applied, and sets the
-robot code's pose so it matches Unity's decision at the correction's timestamp (absolute offsets, so corrections still
-in flight are not counted twice). While the robot pushes into something, the robot code's pose can sit about
+Unity owns the world: every frame it resolves the robot's reported (true) pose against obstacle colliders
+(`FieldObstacle`; table in `Field/FieldObstacleLayout.cs`), draws the constrained pose, and sends a `poseCorrection` when
+it moved the robot. A push also turns the robot about its deepest corner (a robot driven corner-first into a wall swings
+flush), and the robot's slide along a wall it is pushed into is slowed (wall friction). The bridge's `game/PoseCorrector`
+keeps 2 s of true-pose history and the total offset (translation and heading) it has applied, and moves the robot code's
+simulated truth (`DrivetrainSubsystem.frSimPush`) so it matches Unity's decision at the correction's timestamp (absolute offsets, so
+corrections still in flight are not counted twice). The robot code's pose estimate is never set by a collision: its
+odometry keeps going through a wall, its gyro does not feel the turn, and the Limelight sim (fed by the truth) pulls the
+estimate back once the robot is clear of the wall. While the robot pushes into something, the true pose can sit about
 `speed x round trip` (10-20 cm at full speed) inside it. A trench bar blocks the robot only with the hood above 12 deg.
-Bumps are visual only: the drawn robot rises and tilts over them; the robot code is not told.
+Bumps are visual only: the drawn robot rises and tilts over them; the robot code is not told. Placing the robot (match or
+practice start, reset) sets the truth and also resets the robot code's estimate, as the drive team would by starting from
+a known spot.
 
 Field frame is WPILib's blue-origin frame (x along the field's length from the blue wall, CCW-positive headings).
 
 ## Drivetrain sim
 
-The drivetrain is the robot code's own CTRE swerve simulation (`DrivetrainSubsystem.startSimThread`, 5 ms): each
+The drivetrain is the robot code's own CTRE swerve simulation (`DrivetrainSubsystem.startSimThread`, 5 ms); its `simulationPeriodic()` adds up
+its chassis speeds into the true pose every robot loop. Each
 drive motor spins a simulated inertia under its current limit (the 115 A slip current), and the chassis moves with the
 wheels. There is no separate chassis mass or traction model, so the wheel inertia stands in for the robot's mass:
 `DRIVE_INERTIA` in `CompbotTunerConstants` is the robot mass (56.85 kg, from `CompbotConstants`) times the wheel radius
@@ -227,14 +245,21 @@ squared over 4. Phoenix uses it only in simulation. `selfTestDriverSim` measures
 | Stop time / distance | 0.12 s / 0.12 m | 0.38 s / 0.34 m |
 
 Not modelled: wheel slip (peak braking is slightly above what a carpet of friction coefficient 1-1.5 allows), motor
-rotor inertia, and load when pushing into a wall (Unity stops the robot, but the simulated wheels keep spinning).
+rotor inertia, and load when pushing into a wall (Unity stops the true robot, but the simulated wheels keep spinning).
 
 ## Mechanism sim notes
 
-- Each mechanism uses the robot code's own feedforward gains (`kS`, `kV`, `kA`, `kG`) where they exist, so it responds
-  the way the code was tuned to expect. Values without robot-code gains (intake/climber `kA`, climber speed, flywheel
-  spin-up time constant) are game-feel estimates in `RobotMechanismSim`.
-- Devices are reached by CAN ID / DIO / PWM / analog channel from the robot's `Constants`; Phoenix 6 allows a second
-  `TalonFX` handle on the same ID. REV's sim needs the SparkFlex instances, taken from the public `robot.spindex`.
+- Each mechanism subsystem (robot code) moves its mechanism with a WPILib sim (`DCMotorSim`, `FlywheelSim`,
+  `SingleJointedArmSim`) in its own `simulationPeriodic()`, built from the robot code's own feedforward gains (`kV`,
+  `kA`) where they exist, so it responds the way the code was tuned to expect; static friction (`kS`) is a dead band on
+  the voltage. Values without robot-code gains (intake arm and climber `kA`, roller and climber gains, flywheel spin-up
+  time constant, spindex inertia) are game-feel estimates written as literals where the subsystem's sim uses them. The
+  hood servo has no sim: its feedback wire follows the commanded position.
+- Each sim uses its subsystem's own device handles (`TalonFX.getSimState()`, `DIOSim`, `PWMSim`). The spindex's
+  `SparkFlexSim` is created only under `isSimulation()`. The rotor is written with `setRawRotorPosition`, counted from
+  where the mechanism started, so the robot code's `setPosition` calls (zeroing) move only its belief.
+- Public methods prefixed `fr` (`frGetSimTruthPose`, `frGetSimRpm`, `frSimBallLaunched`, ...) are for the Fieldrunner
+  bridge; robot code never calls them.
+- There is no battery model: the battery stays at the roboRIO sim default.
 - The robot code's `MatchState` caches the autonomous winner once per process, so a second match in the same sim run
   keeps the first match's hub-shift order in the robot code (the bridge's `match/state` hub flags are correct).

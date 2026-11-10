@@ -7,6 +7,7 @@ import edu.wpi.first.wpilibj.simulation.DriverStationSim;
 import edu.wpi.first.wpilibj2.command.Command;
 import edu.wpi.first.wpilibj2.command.Commands;
 
+import frc.robot.Robot;
 import frc.robot.subsystems.DrivetrainSubsystem;
 
 /**
@@ -27,7 +28,8 @@ final class DriveFeelMeasurement {
     private static final double STOPPED_MPS = 0.05;          // speed below which the robot counts as stopped, m/s
     private static final Pose2d START_FIELD = new Pose2d();  // field origin; nothing collides without a game
 
-    private final DrivetrainSubsystem drivetrain;  // drivetrain under measurement
+    private final DrivetrainSubsystem drivetrain;  // the robot's drivetrain: truth pose and simulated wheel speeds
+    private final DriverSimBridge bridge;          // places the robot
     private double phaseStartS;                    // robot clock when the current phase began, seconds
     private double lastSampleS;                    // robot clock of the previous sample, seconds
     private double lastSpeedMps;                   // speed at the previous sample, m/s
@@ -45,10 +47,12 @@ final class DriveFeelMeasurement {
     /**
      * Prepares a measurement of one drivetrain.
      *
-     * @param drivetrain The robot code's drivetrain, simulated by its own CTRE sim thread.
+     * @param robot  The robot, whose drivetrain is simulated by its own CTRE sim thread.
+     * @param bridge The bridge, which places the robot.
      */
-    DriveFeelMeasurement(DrivetrainSubsystem drivetrain) {
-        this.drivetrain = drivetrain;
+    DriveFeelMeasurement(Robot robot, DriverSimBridge bridge) {
+        this.drivetrain = robot.drivetrain;
+        this.bridge = bridge;
         int maxSamples = (int) Math.ceil(HOLD_S / 0.005) + 1;
         this.holdSpeedsMps = new double[maxSamples];
         this.holdTimesS = new double[maxSamples];
@@ -93,7 +97,7 @@ final class DriveFeelMeasurement {
     /** Puts the robot at rest at the start pose, sticks centered. */
     private void placeAtRest() {
         reset();
-        drivetrain.resetPose(START_FIELD);
+        bridge.placeRobot(START_FIELD);
         setLeftStickY(0);
     }
 
@@ -124,7 +128,7 @@ final class DriveFeelMeasurement {
     private void release() {
         setLeftStickY(0);
         phaseStartS = Timer.getFPGATimestamp();
-        Pose2d poseField = drivetrain.getState().Pose;
+        Pose2d poseField = drivetrain.frGetSimTruthPose();
         releaseXFieldM = poseField.getX();
     }
 
@@ -135,7 +139,7 @@ final class DriveFeelMeasurement {
         updatePeaks(nowS, speedMps);
         if (stopTimeS < 0 && speedMps < STOPPED_MPS) {
             stopTimeS = nowS - phaseStartS;
-            Pose2d poseField = drivetrain.getState().Pose;
+            Pose2d poseField = drivetrain.frGetSimTruthPose();
             stopDistanceM = poseField.getX() - releaseXFieldM;
         }
     }
@@ -181,7 +185,7 @@ final class DriveFeelMeasurement {
     }
 
     /**
-     * Gets the drivetrain's ground speed from its robot-relative chassis speeds.
+     * Gets the robot's true ground speed from its robot-relative chassis speeds.
      *
      * @return Speed, m/s.
      */

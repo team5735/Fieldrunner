@@ -12,8 +12,9 @@
 //   selfTestDriverSimWithGame - the same plus the built Unity game, checking that its collisions reach the robot code.
 //   testDriverSim      - unit tests for the bridge's pure logic.
 //
-// The bridge (Fieldrunner/bridge) is compiled as its own source set against the robot code; nothing in the robot's
-// src/ changes. When a Fieldrunner run task is requested, GradleRIO's own simulateJavaRelease task is reconfigured to
+// The bridge (Fieldrunner/bridge) is compiled as its own source set against the robot code. The simulated world
+// (ground truth) lives in the robot code's subsystems (each in its own simulationPeriodic); the bridge only links it to the game.
+// When a Fieldrunner run task is requested, GradleRIO's own simulateJavaRelease task is reconfigured to
 // start driversim.DriverSimMain instead of the robot's Main, so WPILib's native libraries and HAL sim extensions are
 // set up exactly as for ./gradlew simulateJava. Plain simulateJava is unaffected.
 

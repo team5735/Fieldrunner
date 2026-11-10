@@ -1,6 +1,6 @@
 # Spec: simulation ground truth in the robot code
 
-Status: approved; implement against the plan at the end. Read `CLAUDE.md` (project rules) first. Code style: Fieldrunner code follows
+Status: implemented; the code layout (`frc.robot.sim`, `SimConstants`) is superseded by `sim-per-subsystem.md`. Read `CLAUDE.md` (project rules) first. Code style: Fieldrunner code follows
 `../FRC/STYLE.md`; code added to `FRC-2026` follows that repo's house style instead, written down in
 `docs/specs/frc-2026-style.md`. FRC-2026 work goes on branch `feature/driver-sim`. If something in
 the code contradicts this spec or a step turns out impossible, stop and report rather than improvising.
@@ -41,15 +41,18 @@ robot code <--sensors (rotor position/velocity, gyro, DIO, analog, Limelight)-- 
 
 | Thing | Ground truth | Robot's belief |
 |---|---|---|
-| Chassis pose | `DrivetrainSim` truth `Pose2d` | `drivetrain.getState().Pose` (odometry + vision) |
+| Chassis pose | `DrivetrainSubsystem` truth `Pose2d` | `drivetrain.getState().Pose` (odometry + vision) |
 | Swerve modules, gyro | CTRE `updateSimState()` (DCMotorSims inside; writes the Pigeon) | Talon / CANcoder / Pigeon readings |
-| Mechanisms | WPILib sims in `MechanismSim` | Talon / Spark / DIO / analog readings |
-| Battery | `BatterySim` -> `RoboRioSim` | `RobotController.getBatteryVoltage()` |
+| Mechanisms | WPILib sims in each subsystem | Talon / Spark / DIO / analog readings |
+| Battery | not modeled (roboRIO sim default) | `RobotController.getBatteryVoltage()` |
 | Vision | truth pose + Gaussian noise -> Limelight NT | `LimelightSubsystem` estimate |
 | Fuel, field, collisions, scoring | Unity (optional) | none |
 | Match, DS, joysticks | Fieldrunner bridge via `DriverStationSim` | `DriverStation` |
 
 ## Robot code changes (`FRC-2026`)
+
+The sections below describe the first layout (`frc.robot.sim`, `RobotSim`, `Robot.getSim()`). It is superseded by
+`sim-per-subsystem.md`: each subsystem owns its sim, `Robot` has no sim hooks, and the bridge reads through `fr` methods.
 
 ### `Robot`
 
