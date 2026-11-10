@@ -24,6 +24,6 @@ Known open items, not planned. Pick one up if it starts to matter.
 - **Turret zero self-test flake.** "turret zeroes on hall switch" times out about 1 run in 7-10, before and after the
   sim refactors. Startup loop overruns appear in failing runs; cause not found.
 - **Bump collision uses 160 mesh colliders.** Negligible CPU today; could be a few boxes / ramps.
-- **Turret overshoot in sim.** Starting near its reverse limit, the simulated turret swings past a target to the
-  forward limit and is re-zeroed, so the first volley after enabling sprays. The with-game shot self-test points the
-  robot so the turret needn't move. Look at the turret sim's plant (kV/kA) against the robot code's profile.
+- **Shot self-test bypasses turret aiming.** The with-game "shot scores in our hub" step points the robot so the turret
+  needn't move (a workaround from when the turret sim overshot; fixed in FRC-2026's turret sim). Placing the robot
+  facing the hub and letting the robot code aim would test aiming too.
