@@ -26,6 +26,8 @@ namespace DriverSim.Net
         private const int QuitSendWaitMs = 300; // milliseconds to let the quit command go out before exiting
         private const double TeleportJumpM = 0.5; // a position jump between two samples bigger than this is a reset
         private const int BatchModeFrameRate = 60; // frames per second when running without a window
+        private const int DefaultWindowFrameRate = 60; // frames per second when the display reports no refresh rate
+        private const double MinRefreshHz = 30; // display refresh rates below this are treated as unreported
 
         [Tooltip("NetworkTables server host; the robot sim runs on this machine by default.")]
         [SerializeField] private string ntHost = "localhost";
@@ -223,11 +225,19 @@ namespace DriverSim.Net
             joystickPublisher = client.Publish(Protocol.JoystickTopic, "double[]");
             client.Start();
 
-            // without a window nothing limits the frame rate
-            if (Application.isBatchMode)
+            // frame rate: a fixed cap without a window, the display's refresh rate in one (some drivers ignore vsync)
+            QualitySettings.vSyncCount = 0;
+            int frameRate = BatchModeFrameRate;
+            if (!Application.isBatchMode)
             {
-                Application.targetFrameRate = BatchModeFrameRate;
+                double refreshHz = Screen.currentResolution.refreshRateRatio.value;
+                frameRate = DefaultWindowFrameRate;
+                if (refreshHz >= MinRefreshHz)
+                {
+                    frameRate = (int)System.Math.Round(refreshHz);
+                }
             }
+            Application.targetFrameRate = frameRate;
         }
 
         private void Update()

@@ -1,6 +1,7 @@
 using DriverSim.Field;
 using DriverSim.Net;
 using DriverSim.Robot;
+using DriverSim.Util;
 using UnityEngine;
 
 namespace DriverSim.Game
@@ -30,6 +31,9 @@ namespace DriverSim.Game
         [Tooltip("Drawn robot, for the bump readout.")]
         [SerializeField] private RobotModel robotModel;
 
+        [Tooltip("Frame timing, for the performance line.")]
+        [SerializeField] private FrameRateLog frameRate;
+
         private bool isVisible = true; // overlay shown at all; false while a menu screen is open
         private bool isDetailVisible = true; // corner panel shown
         private GUIStyle clockStyle; // big match clock; made on the first OnGUI (GUI.skin exists only there)
@@ -42,10 +46,12 @@ namespace DriverSim.Game
         /// <param name="cameraRig">Driver camera.</param>
         /// <param name="robotCollision">Collision resolver.</param>
         /// <param name="model">Drawn robot.</param>
+        /// <param name="frameRateLog">Frame timing.</param>
         public void SetReferences(DriverSimLink driverSimLink, DriverStationCamera cameraRig,
-            RobotCollision robotCollision, RobotModel model)
+            RobotCollision robotCollision, RobotModel model, FrameRateLog frameRateLog)
         {
             robotModel = model;
+            frameRate = frameRateLog;
             link = driverSimLink;
             driverCamera = cameraRig;
             collision = robotCollision;
@@ -169,8 +175,13 @@ namespace DriverSim.Game
             string blueHub = MakeActiveText(match.IsBlueHubActive);
             string redHub = MakeActiveText(match.IsRedHubActive);
 
+            // performance: frame rate and the share of each frame the cpu and gpu spend working
+            string performanceLine = string.Format("frame rate {0:F0} fps  cpu {1:F0}%  gpu {2:F0}%",
+                frameRate.GetFramesPerS(), frameRate.GetCpuPercent(), frameRate.GetGpuPercent());
+
             string collisionLine = MakeCollisionLine() + "\n" + MakeBumpLine();
             string text = "Fieldrunner\n"
+                + performanceLine + "\n"
                 + "robot sim: " + connection + "\n"
                 + mismatch
                 + "station: " + stationName + "   view: " + view + "\n"
@@ -180,8 +191,8 @@ namespace DriverSim.Game
                 + intakeLine + "\n"
                 + collisionLine + "\n"
                 + "hubs: blue " + blueHub + "   red " + redHub;
-            GUI.Box(new Rect(8, 8, 470, 214), GUIContent.none);
-            GUI.Label(new Rect(16, 12, 460, 206), text, panelStyle);
+            GUI.Box(new Rect(8, 8, 470, 232), GUIContent.none);
+            GUI.Label(new Rect(16, 12, 460, 224), text, panelStyle);
         }
 
         /// <summary>How far the robot code's own pose estimate is from where the robot really is, in one line.</summary>

@@ -28,6 +28,7 @@ namespace DriverSim.Editor
         private const string FieldModelPath = "Assets/ThirdParty/AdvantageScope/Field2026/Field2026.glb";
         private const string RobotMaterialPath = "Assets/DriverSim/Materials/RobotBase.mat";
         private const string BumpPartNumber = "GE-26100"; // field model nodes of the four bumps start with this
+        private const float MinShadowCasterSizeM = 0.25f; // field parts smaller than this (largest side) cast no shadow
         private const string MenuLayoutPath = "Assets/DriverSim/UI/DriverSim.uxml"; // menu screens
         private const string PanelSettingsPath = "Assets/DriverSim/UI/PanelSettings.asset"; // menu scaling
         private const string SampleScenePath = "Assets/Scenes/SampleScene.unity";
@@ -63,6 +64,10 @@ namespace DriverSim.Editor
             floorMaterial.SetColor("_BaseColor", new Color(0.12f, 0.12f, 0.13f));
             AssetDatabase.CreateAsset(floorMaterial, "Assets/DriverSim/Materials/ArenaFloor.mat");
             arenaFloor.GetComponent<Renderer>().sharedMaterial = floorMaterial;
+
+            // rendering cost: small field parts don't cast shadows
+            int shadowlessCount = TurnOffSmallShadowCasters(field.transform);
+            Debug.Log("[Driver-Sim] field: " + shadowlessCount + " small parts without shadows");
 
             // collision: obstacle colliders from the layout table, and bump surfaces from the field model
             BuildObstacles();
@@ -101,8 +106,9 @@ namespace DriverSim.Editor
             driverCamera.SetReferences(link, fieldSetup);
 
             // overlay and controls
+            FrameRateLog frameRateLog = root.AddComponent<FrameRateLog>();
             DebugHud hud = root.AddComponent<DebugHud>();
-            hud.SetReferences(link, driverCamera, robotCollision, robot);
+            hud.SetReferences(link, driverCamera, robotCollision, robot, frameRateLog);
             ColliderDebugView colliderView = root.AddComponent<ColliderDebugView>();
             Material solidDebugMaterial = LoadOrCreateDebugMaterial("ColliderSolid", new Color(0f, 0.9f, 1f, 0.6f));
             Material lowDebugMaterial = LoadOrCreateDebugMaterial("ColliderLowCeiling", new Color(1f, 0.9f, 0f, 0.6f));
@@ -347,6 +353,28 @@ namespace DriverSim.Editor
             return material;
         }
 
+        /// <summary>
+        /// Stops field parts smaller than <see cref="MinShadowCasterSizeM"/> (largest side) from casting shadows.
+        /// </summary>
+        /// <param name="field">Root of the field model.</param>
+        /// <returns>Number of renderers changed.</returns>
+        private static int TurnOffSmallShadowCasters(Transform field)
+        {
+            int changed = 0;
+            Renderer[] renderers = field.GetComponentsInChildren<Renderer>(true);
+            foreach (Renderer partRenderer in renderers)
+            {
+                Vector3 sizeM = partRenderer.bounds.size;
+                float largestSideM = Mathf.Max(sizeM.x, sizeM.y, sizeM.z);
+                if (largestSideM < MinShadowCasterSizeM)
+                {
+                    partRenderer.shadowCastingMode = ShadowCastingMode.Off;
+                    changed++;
+                }
+            }
+            return changed;
+        }
+
         /// <summary>Sets the player settings the trainer needs.</summary>
         private static void ApplyPlayerSettings()
         {
@@ -358,6 +386,7 @@ namespace DriverSim.Editor
             PlayerSettings.defaultScreenHeight = 900;
             PlayerSettings.resizableWindow = true;
             PlayerSettings.visibleInBackground = true;
+            PlayerSettings.enableFrameTimingStats = true; // FrameRateLog reports cpu and gpu time per frame
 
             // Linear color space: physically based lighting for URP
             if (PlayerSettings.colorSpace != ColorSpace.Linear)
