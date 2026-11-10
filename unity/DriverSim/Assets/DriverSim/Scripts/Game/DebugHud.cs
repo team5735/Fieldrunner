@@ -34,6 +34,9 @@ namespace DriverSim.Game
         [Tooltip("Fuel on the field, for the fuel line.")]
         [SerializeField] private FuelField fuelField;
 
+        [Tooltip("Field model, for its renderer and triangle counts.")]
+        [SerializeField] private FieldSetup fieldSetup;
+
         [Tooltip("Hopper count, for the fuel line.")]
         [SerializeField] private RobotFuel robotFuel;
 
@@ -59,10 +62,12 @@ namespace DriverSim.Game
         /// <param name="renderScaleCap">Render resolution cap.</param>
         /// <param name="field">Fuel on the field.</param>
         /// <param name="fuel">Hopper count.</param>
+        /// <param name="setup">Field model setup, for the field's draw cost.</param>
         public void SetReferences(DriverSimLink driverSimLink, DriverStationCamera cameraRig,
             RobotCollision robotCollision, RobotModel model, FrameRateLog frameRateLog, RenderScaleCap renderScaleCap,
-            FuelField field, RobotFuel fuel)
+            FuelField field, RobotFuel fuel, FieldSetup setup)
         {
+            fieldSetup = setup;
             fuelField = field;
             robotFuel = fuel;
             renderScale = renderScaleCap;
@@ -196,6 +201,8 @@ namespace DriverSim.Game
             // fuel
             string fuelLine = string.Format("fuel: field {0}  flying {1}  hopper {2}", fuelField.GetFieldCount(),
                 fuelField.GetFlyingCount(), robotFuel.GetHopperCount());
+            string fieldLine = string.Format("field model: {0} renderers  {1:N0} triangles",
+                fieldSetup.GetRendererCount(), fieldSetup.GetTriangleCount());
 
             // hubs
             string blueHub = MakeActiveText(match.IsBlueHubActive);
@@ -220,10 +227,11 @@ namespace DriverSim.Game
                 + mechanismLine + "\n"
                 + intakeLine + "\n"
                 + fuelLine + "\n"
+                + fieldLine + "\n"
                 + collisionLine + "\n"
                 + "hubs: blue " + blueHub + "   red " + redHub;
-            GUI.Box(new Rect(8, 8, 470, 252), GUIContent.none);
-            GUI.Label(new Rect(16, 12, 460, 244), text, panelStyle);
+            GUI.Box(new Rect(8, 8, 470, 270), GUIContent.none);
+            GUI.Label(new Rect(16, 12, 460, 262), text, panelStyle);
         }
 
         /// <summary>How far the robot code's own pose estimate is from where the robot really is, in one line.</summary>

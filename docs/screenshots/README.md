@@ -38,3 +38,6 @@ phase and what changed. Scratch captures live in `_raw/` (git-ignored, ephemeral
 | 31 | Phase 4: a shot in flight, six balls on their arcs toward the blue hub; the hopper is down to 2 and the score is 1. |
 | 32 | Phase 4: HUD with a full preload (`FUEL 8/20`) and `OUR HUB 1` after the first score, before the next volley. |
 | 33 | Phase 4: scored fuel rolling out of the blue hub's exit toward the field center 1.5 s after the score (`OUR HUB 7`, the `+1` pop fading at the top). |
+| 34 | Field simplification (parts under 0.15 m dropped, meshes merged by material): Blue 1 driver view, 1280x720; matches the pre-change render. The details panel has the new `field model:` line (384 renderers, 1,915,410 triangles). |
+| 35 | Field simplification: Red 2 driver view, same viewpoint as before the change. |
+| 36 | Field simplification: overhead view, same viewpoint as before the change. |

@@ -122,6 +122,18 @@ the README's controls table).
   guesses a plain gamepad's family from its display name (cards and button labels). Stick left/right on that screen
   has hysteresis: a push counts past 0.5 and must come back inside 0.3 before it can count again.
 - Field model node names are `GE-26900: Fuel` etc. (AdvantageScope's Config.json shows sanitized names).
+- **Field simplification** (`docs/specs/field-simplification.md`): `SceneBuilder.DropSmallParts` disables the renderers
+  of field parts whose largest world-space side is under `MinPartSizeM` (0.15 m: bolts, nuts, rivets, washers, tape
+  ends; long thin parts survive). It disables rather than deletes so the field stays a prefab instance and the scene
+  file stays small (deleting needs an unpacked instance: 5.5 MB scene). At startup `FieldSetup.MergeFieldMeshes`
+  combines the remaining meshes into one mesh per material, shadow mode and cell of a 4 x 2 grid (32-bit indices, built
+  at runtime, nothing saved; needs the glTF meshes to stay readable, which they are) and disables the originals.
+  Excluded, and why it matters: staged fuel (positions recorded by name), driver station acrylic (`HideAcrylicNear`
+  toggles its renderers), bump parts (`GE-26100`: their own `MeshCollider`s must keep the full-detail meshes) keep their
+  own renderers; parts with a transparent material (render queue 2500 or more: the hub funnel, glass) are not merged
+  because merging loses their back-to-front order and the funnel renders visibly lighter. Merging does not reduce
+  triangles, only draw calls; parts below 0.25 m already cast no shadow. The startup log has
+  `[Driver-Sim] field: N renderers, M triangles (from N0, M0)`; the same counts are on the details panel.
 - `Field/FieldFrame.cs` holds the only field-to-Unity conversion; robot code uses the AndyMark 2026 layout size.
 - The model's driver station acrylic (`FE-00012`) is 20%-opaque gray; the camera looks through it, so FieldSetup hides
   the panels on the camera's wall. That was the "haze" in early screenshots (not a color-space bug; Linear is fine).

@@ -32,6 +32,9 @@ namespace DriverSim.Editor
         private const float FuelFloorMarginM = 3f; // meters the fuel floor extends past the field on every side
         private const float FuelFloorThicknessM = 1f; // meters, thickness of the fuel floor
         private const string BumpPartNumber = "GE-26100"; // field model nodes of the four bumps start with this
+        private const string StagedFuelPartNumber = "GE-26900"; // staged fuel nodes are named "GE-26900: Fuel"
+        private const string AcrylicPartNumber = "FE-00012"; // driver station acrylic nodes start with this
+        private const float MinPartSizeM = 0.15f; // field parts whose largest side is under this are removed
         private const float MinShadowCasterSizeM = 0.25f; // field parts smaller than this (largest side) cast no shadow
         private const string MenuLayoutPath = "Assets/DriverSim/UI/DriverSim.uxml"; // menu screens
         private const string PanelSettingsPath = "Assets/DriverSim/UI/PanelSettings.asset"; // menu scaling
@@ -70,7 +73,8 @@ namespace DriverSim.Editor
             AssetDatabase.CreateAsset(floorMaterial, "Assets/DriverSim/Materials/ArenaFloor.mat");
             arenaFloor.GetComponent<Renderer>().sharedMaterial = floorMaterial;
 
-            // rendering cost: small field parts don't cast shadows
+            // rendering cost: tiny field parts are removed, small ones cast no shadows
+            DropSmallParts(field);
             int shadowlessCount = TurnOffSmallShadowCasters(field.transform);
             Debug.Log("[Driver-Sim] field: " + shadowlessCount + " small parts without shadows");
 
@@ -135,7 +139,7 @@ namespace DriverSim.Editor
             RenderScaleCap renderScaleCap = root.AddComponent<RenderScaleCap>();
             DebugHud hud = root.AddComponent<DebugHud>();
             hud.SetReferences(link, driverCamera, robotCollision, robot, frameRateLog, renderScaleCap, fuelField,
-                robotFuel);
+                robotFuel, fieldSetup);
             GameplayHud gameplayHud = root.AddComponent<GameplayHud>();
             gameplayHud.SetReferences(link, robotFuel, scoreboard, hud);
             ColliderDebugView colliderView = root.AddComponent<ColliderDebugView>();
@@ -438,6 +442,81 @@ namespace DriverSim.Editor
             material = new Material(text);
             AssetDatabase.CreateAsset(material, path);
             return material;
+        }
+
+        /// <summary>
+        /// Removes field parts whose largest world-space side is under <see cref="MinPartSizeM"/> (bolts, nuts, rivets,
+        /// washers, spacers) by disabling their renderers, which keeps the scene file small (the model stays a prefab
+        /// instance). Staged fuel, driver station acrylic and bump parts are kept. Logs how many parts and triangles
+        /// were dropped.
+        /// </summary>
+        /// <param name="field">Root of the instantiated field model.</param>
+        private static void DropSmallParts(GameObject field)
+        {
+            MeshRenderer[] renderers = field.GetComponentsInChildren<MeshRenderer>(true);
+            int totalCount = renderers.Length;
+            long totalTriangles = 0;
+            int droppedCount = 0;
+            long droppedTriangles = 0;
+            foreach (MeshRenderer partRenderer in renderers)
+            {
+                long triangles = CountTriangles(partRenderer);
+                totalTriangles += triangles;
+                if (IsKeptWhole(partRenderer.transform))
+                {
+                    continue;
+                }
+                Vector3 sizeM = partRenderer.bounds.size;
+                float largestSideM = Mathf.Max(sizeM.x, sizeM.y, sizeM.z);
+                if (largestSideM >= MinPartSizeM)
+                {
+                    continue;
+                }
+                droppedCount++;
+                droppedTriangles += triangles;
+                partRenderer.enabled = false;
+            }
+            Debug.Log("[Driver-Sim] field: dropped " + droppedCount + " of " + totalCount + " parts under "
+                + MinPartSizeM + " m, " + droppedTriangles + " of " + totalTriangles + " triangles");
+        }
+
+        /// <summary>Whether a node is, or sits under, staged fuel, driver station acrylic or a bump.</summary>
+        /// <param name="node">Field model node to check.</param>
+        /// <returns>True when the node belongs to a part the game uses by name.</returns>
+        private static bool IsKeptWhole(Transform node)
+        {
+            Transform ancestor = node;
+            while (ancestor != null)
+            {
+                bool isFuel = ancestor.name.StartsWith(StagedFuelPartNumber) && ancestor.name.Contains("Fuel");
+                bool isAcrylic = ancestor.name.StartsWith(AcrylicPartNumber);
+                bool isBump = ancestor.name.StartsWith(BumpPartNumber);
+                if (isFuel || isAcrylic || isBump)
+                {
+                    return true;
+                }
+                ancestor = ancestor.parent;
+            }
+            return false;
+        }
+
+        /// <summary>Counts the triangles a mesh renderer draws.</summary>
+        /// <param name="partRenderer">Renderer whose mesh filter is read.</param>
+        /// <returns>Triangle count; 0 when there is no mesh.</returns>
+        private static long CountTriangles(MeshRenderer partRenderer)
+        {
+            MeshFilter filter = partRenderer.GetComponent<MeshFilter>();
+            if (filter == null || filter.sharedMesh == null)
+            {
+                return 0;
+            }
+            long indexCount = 0;
+            Mesh mesh = filter.sharedMesh;
+            for (int i = 0; i < mesh.subMeshCount; i++)
+            {
+                indexCount += mesh.GetIndexCount(i);
+            }
+            return indexCount / 3;
         }
 
         /// <summary>
