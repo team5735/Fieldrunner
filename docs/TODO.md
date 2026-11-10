@@ -2,6 +2,19 @@
 
 Known open items, not planned. Pick one up if it starts to matter.
 
+## Next up
+
+- **Hook the bridge into the robot code's own entry point.** Today `simulateDriverSim` runs `driversim.DriverSimMain`,
+  which copies `frc.robot.Main`'s robot switch and can drift from it. Instead: a two-line sim-only hook in
+  `Robot.simulationInit()` (`Fieldrunner.attachIfPresent(this)`, looking up `driversim.DriverSimBridge` by name so the
+  robot code still compiles without Fieldrunner), `driversim.gradle` puts the bridge classes on the normal
+  `simulateJava` classpath when `../Fieldrunner` exists, and `DriverSimMain` is deleted. Modes keep coming from
+  `DRIVERSIM_INPUT` / `DRIVERSIM_SELFTEST` (default `gui`, so VS Code's "Simulate Robot Code" keeps the sim GUI's
+  joysticks and the game just adds the field). `simulateDriverSim` and the self-tests stay as shortcuts. Verify with
+  both self-tests and a plain `simulateJava` + game run.
+
+## Parked
+
 - **Vision makes Back useless in sim.** The fake Limelights see a tag from everywhere, so the robot's pose estimator
   pulls the heading back to truth within ~0.1 s of `seedFieldCentric`. Fix: give `LimelightSubsystem`'s sim a field of
   view and range against the 2026 AprilTag layout (mount angles are in its comments), and/or a game option that flips
