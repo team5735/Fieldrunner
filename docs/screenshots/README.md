@@ -49,3 +49,8 @@ phase and what changed. Scratch captures live in `_raw/` (git-ignored, ephemeral
 | 42 | Simplified field, High quality: Red 2 driver view. |
 | 43 | Simplified field, High quality: overhead view. |
 | 44 | Fuel ball simplified to 124 triangles (from 1244), High quality, Red 2 driver view at 640x480. |
+| 45 | Fuel drawn with GPU instancing, High quality: Red 2 driver view at 640x480 (matches 44). |
+| 46 | Fuel drawn with GPU instancing, Low quality: Red 2 driver view at 640x480. |
+| 47 | Fuel drawn with GPU instancing, High quality: overhead view. |
+| 48 | Fuel drawn with GPU instancing, Low quality: overhead view. |
+| 49 | Instanced fuel in play: a ball in flight above the hub, balls that landed by the robot, scored balls counted. |

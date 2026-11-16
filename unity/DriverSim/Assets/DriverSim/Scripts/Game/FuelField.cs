@@ -7,6 +7,34 @@ using UnityEngine;
 
 namespace DriverSim.Game
 {
+    /// <summary>One drawable piece of the ball model: a mesh and submesh with its material, placed relative to the ball.</summary>
+    public readonly struct FuelPart
+    {
+        /// <param name="mesh">The part's mesh.</param>
+        /// <param name="submeshIndex">Submesh of the mesh this part draws.</param>
+        /// <param name="renderParams">Layer, shadow and bounds settings, with the part's material.</param>
+        /// <param name="localMatrix">Part to ball transform: the model's own scale and centering offset.</param>
+        public FuelPart(Mesh mesh, int submeshIndex, RenderParams renderParams, Matrix4x4 localMatrix)
+        {
+            Mesh = mesh;
+            SubmeshIndex = submeshIndex;
+            RenderParams = renderParams;
+            LocalMatrix = localMatrix;
+        }
+
+        /// <summary>The part's mesh.</summary>
+        public Mesh Mesh { get; }
+
+        /// <summary>Submesh of the mesh this part draws.</summary>
+        public int SubmeshIndex { get; }
+
+        /// <summary>Layer, shadow and bounds settings, with the part's material.</summary>
+        public RenderParams RenderParams { get; }
+
+        /// <summary>Part to ball transform.</summary>
+        public Matrix4x4 LocalMatrix { get; }
+    }
+
     /// <summary>
     /// Owns every fuel ball: the pool, the balls resting on the field (Rigidbody spheres, the game's only physics), the
     /// balls flying a scripted arc after a launch, and the balls waiting to return from a hub after a score.
@@ -15,6 +43,9 @@ namespace DriverSim.Game
     /// and ends by scoring (it is hidden and reappears at the hub's exit after <see cref="ReturnDelayS"/>), by hitting
     /// a hub's body (it becomes a physics ball with its velocity reflected) or by landing (a physics ball with its
     /// current velocity). Also takes <c>spawnFuel</c> commands from the bridge's command topic.
+    ///
+    /// Balls have no renderers: every frame <see cref="LateUpdate"/> draws all active balls with one instanced draw
+    /// call per mesh part of the ball model.
     /// </summary>
     public sealed class FuelField : MonoBehaviour
     {
@@ -39,6 +70,9 @@ namespace DriverSim.Game
         private const float EdgeMarginM = 0.1f; // meters; fuel outside the field by more than this is put back
         private const float RecoveredHeightM = 0.2f; // meters above the carpet where a lost ball is put back
         private const float LostBelowM = -0.3f; // meters; a ball below this fell through the floor
+        private const int MaxInstancesPerCall = 1023; // most instances one instanced draw call takes
+        private const float RenderBoundsHeightM = 10f; // meters; height of the box that bounds the drawn balls
+        private const float RenderBoundsMarginM = 2f; // meters beyond the field walls that the bounds reach
 
         [Tooltip("Link to the bridge, for spawnFuel commands.")]
         [SerializeField] private DriverSimLink link;
@@ -56,7 +90,9 @@ namespace DriverSim.Game
         private readonly List<FuelBall> resting = new List<FuelBall>(); // physics balls on the field
         private HubFootprint[] hubs; // both hubs
         private readonly List<ObstacleSpec> blockers = new List<ObstacleSpec>(); // solid obstacles a landing avoids
-        private GameObject visualTemplate; // inactive ball visual copied into every ball
+        private GameObject visualTemplate; // inactive ball visual, the source of the parts
+        private FuelPart[] parts = new FuelPart[0]; // every drawable piece of the ball model
+        private readonly Matrix4x4[] instanceMatrices = new Matrix4x4[MaxInstancesPerCall]; // world matrices of one batch
         private PhysicsMaterial ballMaterial; // friction and bounce of every ball
         private int restingCount; // balls in the Resting state
         private int flyingCount; // balls in the Flying state
@@ -206,6 +242,11 @@ namespace DriverSim.Game
             KeepRestingBallsInPlay();
         }
 
+        private void LateUpdate()
+        {
+            DrawBalls();
+        }
+
         // ---- private stateful helpers
 
         /// <summary>Takes the solid obstacle rectangles a landing ball must not end up inside.</summary>
@@ -234,7 +275,7 @@ namespace DriverSim.Game
 
         /// <summary>
         /// Builds the ball visual once: the Fuel.glb model scaled to the ball's diameter and centered, with any
-        /// colliders and shadows removed. Without a model it is a plain yellow sphere.
+        /// colliders removed, then records its parts for instanced drawing. Without a model it is a plain sphere.
         /// </summary>
         private void MakeVisualTemplate()
         {
@@ -247,6 +288,7 @@ namespace DriverSim.Game
                 Destroy(sphere.GetComponent<Collider>());
                 sphere.transform.SetParent(visualTemplate.transform, false);
                 sphere.transform.localScale = Vector3.one * BallDiameterM;
+                CollectParts(sphere);
                 visualTemplate.SetActive(false);
                 return;
             }
@@ -276,8 +318,6 @@ namespace DriverSim.Game
             Renderer[] renderers = model.GetComponentsInChildren<Renderer>(true);
             foreach (Renderer ballRenderer in renderers)
             {
-                ballRenderer.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
-
                 // foam look: not metallic, low gloss (URP Lit and the glTF shader name these differently); the
                 // template's material copies are shared by every ball
                 Material[] materials = ballRenderer.materials;
@@ -289,7 +329,84 @@ namespace DriverSim.Game
                     SetIfPresent(visualMaterial, "roughnessFactor", 1f - FoamSmoothness);
                 }
             }
+            CollectParts(model);
             visualTemplate.SetActive(false);
+        }
+
+        /// <summary>
+        /// Records each mesh and material under a model as a <see cref="FuelPart"/> with its matrix relative to the
+        /// template root, and turns on instancing for the materials.
+        /// </summary>
+        /// <param name="model">Root of the model under the visual template.</param>
+        private void CollectParts(GameObject model)
+        {
+            // draw settings shared by every part
+            float boundsWidthM = FieldFrame.FieldLengthM + 2 * RenderBoundsMarginM;
+            float boundsDepthM = FieldFrame.FieldWidthM + 2 * RenderBoundsMarginM;
+            Vector3 boundsCenterWorld = new Vector3(0, RenderBoundsHeightM / 2, 0);
+            Vector3 boundsSizeM = new Vector3(boundsWidthM, RenderBoundsHeightM, boundsDepthM);
+            Bounds worldBounds = new Bounds(boundsCenterWorld, boundsSizeM);
+            Matrix4x4 worldToRoot = visualTemplate.transform.worldToLocalMatrix;
+
+            // one part per submesh with a material
+            List<FuelPart> found = new List<FuelPart>();
+            MeshFilter[] filters = model.GetComponentsInChildren<MeshFilter>(true);
+            foreach (MeshFilter filter in filters)
+            {
+                Mesh mesh = filter.sharedMesh;
+                MeshRenderer meshRenderer = filter.GetComponent<MeshRenderer>();
+                if (mesh == null || meshRenderer == null)
+                {
+                    continue;
+                }
+                Matrix4x4 partToWorld = filter.transform.localToWorldMatrix;
+                Matrix4x4 localMatrix = worldToRoot * partToWorld;
+                Material[] materials = meshRenderer.materials;
+                int submeshCount = Mathf.Min(materials.Length, mesh.subMeshCount);
+                for (int submesh = 0; submesh < submeshCount; submesh++)
+                {
+                    Material material = materials[submesh];
+                    material.enableInstancing = true;
+                    RenderParams renderParams = new RenderParams(material);
+                    renderParams.layer = GameLayers.Fuel;
+                    renderParams.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+                    renderParams.receiveShadows = true;
+                    renderParams.worldBounds = worldBounds;
+                    found.Add(new FuelPart(mesh, submesh, renderParams, localMatrix));
+                }
+            }
+            parts = found.ToArray();
+        }
+
+        /// <summary>Draws every active ball with one instanced draw call per part for each 1023 balls.</summary>
+        private void DrawBalls()
+        {
+            foreach (FuelPart part in parts)
+            {
+                Matrix4x4 partMatrix = part.LocalMatrix;
+                int count = 0;
+                foreach (FuelBall ball in balls)
+                {
+                    if (!ball.gameObject.activeSelf)
+                    {
+                        continue;
+                    }
+                    Matrix4x4 ballMatrix = ball.transform.localToWorldMatrix;
+                    instanceMatrices[count] = ballMatrix * partMatrix;
+                    count++;
+                    if (count == MaxInstancesPerCall)
+                    {
+                        Graphics.RenderMeshInstanced(part.RenderParams, part.Mesh, part.SubmeshIndex,
+                            instanceMatrices, count);
+                        count = 0;
+                    }
+                }
+                if (count > 0)
+                {
+                    Graphics.RenderMeshInstanced(part.RenderParams, part.Mesh, part.SubmeshIndex, instanceMatrices,
+                        count);
+                }
+            }
         }
 
         /// <summary>Takes a hidden ball from the pool, or makes one.</summary>
@@ -304,7 +421,7 @@ namespace DriverSim.Game
             return ball;
         }
 
-        /// <summary>Makes one ball: a rigidbody sphere with the fuel visual, hidden.</summary>
+        /// <summary>Makes one ball: a rigidbody sphere, hidden; it is drawn by <see cref="DrawBalls"/>.</summary>
         private FuelBall MakeBall()
         {
             GameObject ballObject = new GameObject("Fuel");
@@ -321,12 +438,6 @@ namespace DriverSim.Game
             body.angularDamping = AngularDamping;
             body.maxDepenetrationVelocity = MaxDepenetrationMps;
             body.sleepThreshold = SleepThreshold;
-
-            // visual
-            GameObject visual = Instantiate(visualTemplate, ballObject.transform);
-            visual.name = "Visual";
-            visual.transform.localPosition = Vector3.zero;
-            visual.SetActive(true);
 
             FuelBall ball = ballObject.AddComponent<FuelBall>();
             ball.SetParts(body, ballCollider);

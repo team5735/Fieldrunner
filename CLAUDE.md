@@ -128,6 +128,11 @@ the README's controls table).
   the source model changes. About 347k triangles in the file, 182k drawn after the steps below.
   The fuel ball is `Fuel-lite.glb` from the same script (124 triangles instead of 1244; 456 of them are drawn).
   Game arg `--fuel N` spawns about N balls (every few staged positions) instead of all 456, for performance tests.
+  Balls have no renderers: `FuelField` draws every active ball in `LateUpdate` with `Graphics.RenderMeshInstanced`, one
+  call per mesh part of the ball model per 1023 balls (parts and materials are collected from the inactive
+  `FuelVisualTemplate`). Instanced draws need the shader's instancing variants in the player, so
+  `GraphicsSettings.asset` has `m_InstancingStripping: 2` (Keep All); with the default (Strip Unused) the runtime
+  materials' instancing variants are stripped and the balls silently do not draw.
 - **Field simplification** (`docs/specs/field-simplification.md`): `SceneBuilder.DropSmallParts` disables the renderers
   of field parts whose largest world-space side is under `MinPartSizeM` (0.15 m: bolts, nuts, rivets, washers, tape
   ends; long thin parts survive). It disables rather than deletes so the field stays a prefab instance and the scene
