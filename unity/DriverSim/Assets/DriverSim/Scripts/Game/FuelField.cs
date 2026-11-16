@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using DriverSim.Field;
 using DriverSim.Net;
+using DriverSim.Util;
 using UnityEngine;
 
 namespace DriverSim.Game
@@ -104,14 +105,23 @@ namespace DriverSim.Game
             return resting;
         }
 
-        /// <summary>Removes every ball from play, then puts one at each staged position.</summary>
+        /// <summary>
+        /// Removes every ball from play, then puts one at each staged position, or at every few staged positions when
+        /// <c>--fuel N</c> asks for N balls.
+        /// </summary>
         public void RespawnAll()
         {
             ClearAll();
             IReadOnlyList<Vector3> staged = fieldSetup.GetStagedFuelPositions();
-            foreach (Vector3 position in staged)
+            int stride = 1;
+            string fuelArgument = CommandLine.GetValue("--fuel");
+            if (int.TryParse(fuelArgument, out int wantedCount) && wantedCount > 0)
             {
-                SpawnResting(position);
+                stride = Mathf.Max(1, Mathf.CeilToInt((float)staged.Count / wantedCount));
+            }
+            for (int i = 0; i < staged.Count; i += stride)
+            {
+                SpawnResting(staged[i]);
             }
         }
 

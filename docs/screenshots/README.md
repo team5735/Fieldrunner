@@ -48,3 +48,4 @@ phase and what changed. Scratch captures live in `_raw/` (git-ignored, ephemeral
 | 41 | Simplified field (gltfpack, 182k triangles instead of 1.9M), High quality: Blue 1 driver view. Before: `_raw/before-high-b1_2.jpg`. |
 | 42 | Simplified field, High quality: Red 2 driver view. |
 | 43 | Simplified field, High quality: overhead view. |
+| 44 | Fuel ball simplified to 124 triangles (from 1244), High quality, Red 2 driver view at 640x480. |

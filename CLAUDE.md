@@ -126,6 +126,8 @@ the README's controls table).
   `scripts/simplify-field.sh` (gltfpack on PATH, installed at `~/.local/bin/gltfpack`; `-kn -km` keep the node and
   material names the game looks up; ratio 0.1 keeps all named parts, 0.05 drops 26 cm bump bulkheads). Rerun it if
   the source model changes. About 347k triangles in the file, 182k drawn after the steps below.
+  The fuel ball is `Fuel-lite.glb` from the same script (124 triangles instead of 1244; 456 of them are drawn).
+  Game arg `--fuel N` spawns about N balls (every few staged positions) instead of all 456, for performance tests.
 - **Field simplification** (`docs/specs/field-simplification.md`): `SceneBuilder.DropSmallParts` disables the renderers
   of field parts whose largest world-space side is under `MinPartSizeM` (0.15 m: bolts, nuts, rivets, washers, tape
   ends; long thin parts survive). It disables rather than deletes so the field stays a prefab instance and the scene

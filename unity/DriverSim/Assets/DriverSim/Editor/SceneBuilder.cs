@@ -27,7 +27,7 @@ namespace DriverSim.Editor
         public const string ScenePath = "Assets/Scenes/DriverSim.unity";
         private const string FieldModelPath = "Assets/ThirdParty/AdvantageScope/Field2026/Field2026-lite.glb";
         private const string RobotMaterialPath = "Assets/DriverSim/Materials/RobotBase.mat";
-        private const string FuelModelPath = "Assets/ThirdParty/AdvantageScope/Field2026/Fuel.glb";
+        private const string FuelModelPath = "Assets/ThirdParty/AdvantageScope/Field2026/Fuel-lite.glb";
         private const string TagManagerPath = "ProjectSettings/TagManager.asset"; // where layer names live
         private const float FuelFloorMarginM = 3f; // meters the fuel floor extends past the field on every side
         private const float FuelFloorThicknessM = 1f; // meters, thickness of the fuel floor

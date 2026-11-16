@@ -10,3 +10,4 @@ Source: AdvantageScopeAssets release `default-assets-v2`, `Field3d_2026FRCFieldV
   90 deg about X to its Z-up frame). Field 651.22 x 317.677 in.
 - `Field2026-lite.glb`: `Field2026.glb` simplified by `scripts/simplify-field.sh` (meshoptimizer's gltfpack 1.3,
   `-kn -km -noq -si 0.1`). The scene uses this one; `Field2026.glb` is kept as its source.
+- `Fuel-lite.glb`: `Fuel.glb` simplified by the same script (`-kn -km -noq -si 0.1 -se 0.05`, 124 triangles).
