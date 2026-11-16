@@ -7,7 +7,8 @@ namespace DriverSim.Game
     /// <summary>
     /// The player's display and camera settings: camera view, field of view, details panel, collider overlay,
     /// fullscreen, resolution and graphics quality. Each change applies at once and is saved in PlayerPrefs; the saved
-    /// values are applied on the first frame. Command-line arguments win over saved values (<c>--view</c>,
+    /// values are applied on the first frame (the starting quality level is chosen earlier by
+    /// <see cref="GraphicsQuality.ApplyStartupLevel"/>). Command-line arguments win over saved values (<c>--view</c>,
     /// <c>--show-colliders</c>), and a window with no display (batch mode) keeps its screen settings.
     /// </summary>
     public sealed class GameOptions : MonoBehaviour
@@ -19,7 +20,6 @@ namespace DriverSim.Game
         private const string FullscreenKey = "DriverSim.fullscreen"; // PlayerPrefs: 1 fullscreen, 0 windowed
         private const string ResolutionWidthKey = "DriverSim.resolutionWidth"; // PlayerPrefs: pixels
         private const string ResolutionHeightKey = "DriverSim.resolutionHeight"; // PlayerPrefs: pixels
-        private const string QualityKey = "DriverSim.quality"; // PlayerPrefs: QualitySettings level index
         private const float FieldOfViewStepDeg = 5f; // degrees per field-of-view hotkey press
 
         [Tooltip("Camera whose view and field of view are set.")]
@@ -191,7 +191,7 @@ namespace DriverSim.Game
         public void SetQualityLevel(int level)
         {
             QualitySettings.SetQualityLevel(level, true);
-            PlayerPrefs.SetInt(QualityKey, level);
+            PlayerPrefs.SetInt(GraphicsQuality.SavedLevelKey, level);
         }
 
         // ---- Unity messages
@@ -244,11 +244,6 @@ namespace DriverSim.Game
             if (Application.isBatchMode)
             {
                 return;
-            }
-            if (PlayerPrefs.HasKey(QualityKey))
-            {
-                int savedQuality = PlayerPrefs.GetInt(QualityKey);
-                QualitySettings.SetQualityLevel(savedQuality, true);
             }
             if (PlayerPrefs.HasKey(FullscreenKey))
             {

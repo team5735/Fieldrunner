@@ -41,3 +41,10 @@ phase and what changed. Scratch captures live in `_raw/` (git-ignored, ephemeral
 | 34 | Field simplification (parts under 0.15 m dropped, meshes merged by material): Blue 1 driver view, 1280x720; matches the pre-change render. The details panel has the new `field model:` line (384 renderers, 1,915,410 triangles). |
 | 35 | Field simplification: Red 2 driver view, same viewpoint as before the change. |
 | 36 | Field simplification: overhead view, same viewpoint as before the change. |
+| 37 | Low quality level (no shadows, no HDR, no post-processing, no SSAO, 30 fps): Blue 1 driver view, 1280x720 window. |
+| 38 | Low quality level: Red 2 driver view. |
+| 39 | Low quality level: overhead view. |
+| 40 | High quality level for comparison with 37: Blue 1 driver view, same window size (shadows, SSAO, 60 fps). |
+| 41 | Simplified field (gltfpack, 182k triangles instead of 1.9M), High quality: Blue 1 driver view. Before: `_raw/before-high-b1_2.jpg`. |
+| 42 | Simplified field, High quality: Red 2 driver view. |
+| 43 | Simplified field, High quality: overhead view. |

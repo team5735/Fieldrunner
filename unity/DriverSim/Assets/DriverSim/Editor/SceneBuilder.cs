@@ -25,7 +25,7 @@ namespace DriverSim.Editor
     public static class SceneBuilder
     {
         public const string ScenePath = "Assets/Scenes/DriverSim.unity";
-        private const string FieldModelPath = "Assets/ThirdParty/AdvantageScope/Field2026/Field2026.glb";
+        private const string FieldModelPath = "Assets/ThirdParty/AdvantageScope/Field2026/Field2026-lite.glb";
         private const string RobotMaterialPath = "Assets/DriverSim/Materials/RobotBase.mat";
         private const string FuelModelPath = "Assets/ThirdParty/AdvantageScope/Field2026/Fuel.glb";
         private const string TagManagerPath = "ProjectSettings/TagManager.asset"; // where layer names live

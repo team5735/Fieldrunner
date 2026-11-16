@@ -122,6 +122,10 @@ the README's controls table).
   guesses a plain gamepad's family from its display name (cards and button labels). Stick left/right on that screen
   has hysteresis: a push counts past 0.5 and must come back inside 0.3 before it can count again.
 - Field model node names are `GE-26900: Fuel` etc. (AdvantageScope's Config.json shows sanitized names).
+- **Field model file**: the scene uses `Field2026-lite.glb`, made from the untouched `Field2026.glb` by
+  `scripts/simplify-field.sh` (gltfpack on PATH, installed at `~/.local/bin/gltfpack`; `-kn -km` keep the node and
+  material names the game looks up; ratio 0.1 keeps all named parts, 0.05 drops 26 cm bump bulkheads). Rerun it if
+  the source model changes. About 347k triangles in the file, 182k drawn after the steps below.
 - **Field simplification** (`docs/specs/field-simplification.md`): `SceneBuilder.DropSmallParts` disables the renderers
   of field parts whose largest world-space side is under `MinPartSizeM` (0.15 m: bolts, nuts, rivets, washers, tape
   ends; long thin parts survive). It disables rather than deletes so the field stays a prefab instance and the scene
@@ -129,7 +133,7 @@ the README's controls table).
   combines the remaining meshes into one mesh per material, shadow mode and cell of a 4 x 2 grid (32-bit indices, built
   at runtime, nothing saved; needs the glTF meshes to stay readable, which they are) and disables the originals.
   Excluded, and why it matters: staged fuel (positions recorded by name), driver station acrylic (`HideAcrylicNear`
-  toggles its renderers), bump parts (`GE-26100`: their own `MeshCollider`s must keep the full-detail meshes) keep their
+  toggles its renderers), bump parts (`GE-26100`: their own `MeshCollider`s must keep the file's meshes) keep their
   own renderers; parts with a transparent material (render queue 2500 or more: the hub funnel, glass) are not merged
   because merging loses their back-to-front order and the funnel renders visibly lighter. Merging does not reduce
   triangles, only draw calls; parts below 0.25 m already cast no shadow. The startup log has
@@ -153,6 +157,14 @@ the README's controls table).
   thread also crashes (SIGSEGV) when the sim GUI is loaded, because the GUI runs on the main thread. The game sends
   `quit` on exit (`--stop-sim-on-exit`, passed by simulateDriverSim) and the bridge calls `robot.endCompetition()`;
   WPILib's `RobotBase.startRobot` then stops the GUI (`HAL.exitMain`), shuts down the HAL and exits in order.
+- **Quality levels** (`ProjectSettings/QualitySettings.asset`): `Low` (0, `Assets/Settings/Low_RPAsset` + `Low_Renderer`:
+  no shadows, HDR, MSAA, depth/opaque copies, SSAO or post-processing (the renderer's `postProcessData` is empty), 30 fps
+  in a window) and `High` (1, the old PC settings, display refresh rate). Both must stay enabled for Standalone.
+  `Util/GraphicsQuality.ApplyStartupLevel` (called from `DriverSimLink.Awake`) picks the level: `--quality low|high`,
+  else the saved Options choice, else Low on a weak GPU (name list / under 2 GB in `IsWeakGpu`); batch mode keeps the
+  project default unless `--quality` is given. The `[Driver-Sim] graphics:` line ends with the level and its source.
+  `DriverSimLink` re-sets the frame rate when the level changes; `RenderScaleCap` re-reads the active URP asset when it
+  changes and caps rendered pixels at 1080p (High) or 720p (Low) with FSR.
 - Known: the post-processing volume (tonemapping/contrast) doesn't visibly apply yet.
 - Scratch captures go to `docs/screenshots/_raw/` (git-ignored; `capture-screenshots.sh <name>` writes there).
   Every meaningful render is copied up to `docs/screenshots/NN-phaseX-what.jpg` (next number, never overwrite or
@@ -208,7 +220,7 @@ Spec: `docs/specs/phase4-gameplay.md`; the rules and numbers are in the README's
   topic it hasn't seen announced (this once made the game's `hello` vanish).
 - WPILib sim sometimes aborts at startup (`fmt/base.h: assertion failed: negative value`, exit 134), seen twice in a row of
   capture runs. It is intermittent and happens before the bridge does anything; wait a few seconds and retry.
-- Bump surfaces are 160 mesh colliders (every mesh under the `GE-26100` nodes) with a `BumpSurface` marker; wheel rays
+- Bump surfaces are 112 mesh colliders (every mesh under the `GE-26100` nodes) with a `BumpSurface` marker; wheel rays
   keep only those hits.
 - A placement (self-test, F6 reset, match or practice start) is a teleport: the game never blends render samples across a jump over
   0.5 m, and `PoseCorrector` ignores corrections stamped within 0.05 s after a pose discontinuity. Without both, a

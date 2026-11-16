@@ -27,6 +27,7 @@ namespace DriverSim.Net
         private const double TeleportJumpM = 0.5; // a position jump between two samples bigger than this is a reset
         private const int BatchModeFrameRate = 60; // frames per second when running without a window
         private const int DefaultWindowFrameRate = 60; // frames per second when the display reports no refresh rate
+        private const int LowQualityFrameRate = 30; // frames per second in a window on the Low quality level
         private const double MinRefreshHz = 30; // display refresh rates below this are treated as unreported
 
         [Tooltip("NetworkTables server host; the robot sim runs on this machine by default.")]
@@ -50,6 +51,7 @@ namespace DriverSim.Net
         private RumbleState rumble = RumbleState.None; // newest rumble request from the robot code
         private readonly Queue<FuelSpawnRequest> spawnRequests = new Queue<FuelSpawnRequest>(); // spawnFuel commands
         private float lastSampleTimeS = -1000; // Time.unscaledTime of the newest robot sample, seconds
+        private int frameRateQualityLevel = -1; // quality level the frame rate was last chosen for
         private bool isProtocolMismatch; // bridge speaks a different protocol version
         private int robotStateVersion = Protocol.Version; // protocol version carried by the newest robot state
         private bool hasSaidHello; // hello was sent on the current connection
@@ -234,7 +236,11 @@ namespace DriverSim.Net
             // which GPU and graphics API the player picked, for checking that a discrete GPU is used
             string graphicsDevice = SystemInfo.graphicsDeviceName;
             GraphicsDeviceType graphicsApi = SystemInfo.graphicsDeviceType;
-            Debug.Log("[Driver-Sim] graphics: " + graphicsDevice + " (" + graphicsApi + ")");
+            int graphicsMemoryMb = SystemInfo.graphicsMemorySize;
+            string qualitySource = GraphicsQuality.ApplyStartupLevel();
+            string qualityName = QualitySettings.names[QualitySettings.GetQualityLevel()];
+            Debug.Log("[Driver-Sim] graphics: " + graphicsDevice + " (" + graphicsApi + "), " + graphicsMemoryMb
+                      + " MB, quality " + qualityName + " (" + qualitySource + ")");
 
             // server host from the command line
             string hostArgument = CommandLine.GetValue("--nt-host");
@@ -256,23 +262,20 @@ namespace DriverSim.Net
             gameStatePublisher = client.Publish(Protocol.GameStateTopic, "double[]");
             client.Start();
 
-            // frame rate: a fixed cap without a window, the display's refresh rate in one (some drivers ignore vsync)
+            // frame rate for the starting quality level
             QualitySettings.vSyncCount = 0;
-            int frameRate = BatchModeFrameRate;
-            if (!Application.isBatchMode)
-            {
-                double refreshHz = Screen.currentResolution.refreshRateRatio.value;
-                frameRate = DefaultWindowFrameRate;
-                if (refreshHz >= MinRefreshHz)
-                {
-                    frameRate = (int)System.Math.Round(refreshHz);
-                }
-            }
-            Application.targetFrameRate = frameRate;
+            UpdateFrameRate();
         }
 
         private void Update()
         {
+            // frame rate follows the quality level
+            int qualityLevel = QualitySettings.GetQualityLevel();
+            if (qualityLevel != frameRateQualityLevel)
+            {
+                UpdateFrameRate();
+            }
+
             // greet the bridge once per connection, after the publications have been announced
             UpdateHello();
 
@@ -308,6 +311,30 @@ namespace DriverSim.Net
         }
 
         // ---- private stateful helpers
+
+        /// <summary>
+        /// Sets the frame rate cap for the current quality level: a fixed cap without a window; in a window 30 on Low
+        /// and the display's refresh rate otherwise (some drivers ignore vsync).
+        /// </summary>
+        private void UpdateFrameRate()
+        {
+            frameRateQualityLevel = QualitySettings.GetQualityLevel();
+            int frameRate = BatchModeFrameRate;
+            if (!Application.isBatchMode)
+            {
+                double refreshHz = Screen.currentResolution.refreshRateRatio.value;
+                frameRate = DefaultWindowFrameRate;
+                if (refreshHz >= MinRefreshHz)
+                {
+                    frameRate = (int)System.Math.Round(refreshHz);
+                }
+                if (frameRateQualityLevel == GraphicsQuality.LowLevel)
+                {
+                    frameRate = LowQualityFrameRate;
+                }
+            }
+            Application.targetFrameRate = frameRate;
+        }
 
         /// <summary>Sends hello once per connection, as soon as it is up (publications are announced by
         /// then).</summary>
